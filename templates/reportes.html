@@ -1,0 +1,92 @@
+{% extends 'base.html' %}{% block crumb %}Reportes{% endblock %}{% block content %}
+<div class="page-header"><h2>Reportes de ventas</h2>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+
+        <h5>Filtrar ventas por fecha</h5>
+
+        <form method="GET"
+              action="{{ url_for('exportar_ventas_excel') }}"
+              class="row g-3 align-items-end">
+
+            <div class="col-md-4">
+                <label class="form-label">
+                    Fecha inicial
+                </label>
+                <input type="date"
+                       name="inicio"
+                       class="form-control"
+                       required>
+            </div>
+
+            <div class="col-md-4">
+                <label class="form-label">
+                    Fecha final
+                </label>
+                <input type="date"
+                       name="fin"
+                       class="form-control"
+                       required>
+            </div>
+
+            <div class="col-md-4">
+                <button type="button" onclick="window.print()" class="btn btn-outline-primary">
+                    Imprimir
+                </button>
+                <button type="submit"
+                        class="btn btn-success w-100">
+                    Descargar Excel
+                </button>
+            </div>
+
+        </form>
+    </div>
+</div>
+
+
+    <div class="stats mb-4">
+        <div class="stat">
+            <small>Ventas en el período</small>
+            <strong>{{resumen.cantidad}}</strong>
+        </div>
+        <div class="stat">
+            <small>Total vendido</small>
+            <strong>{{resumen.total|q}}</strong>
+        </div>
+    </div>
+    <div class="row g-4">
+        <div class="col-lg-7">
+            <div class="panel">
+                <h5>Ventas por día</h5>
+                <canvas id="grafico"></canvas>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="panel">
+                <h5>Productos más vendidos</h5>
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Producto</th>
+                            <th>Unidades</th>
+                            <th>Importe</th>
+                        </tr>
+                    </thead>
+                    <tbody>{% for p in productos %}<tr>
+                        <td>{{p.nombre}}</td>
+                        <td>{{p.cantidad}}</td>
+                        <td>{{p.total|q}}</td>
+                    </tr>{% else %}<tr>
+                        <td colspan="3">Sin ventas.</td>
+                    </tr>{% endfor %}</tbody>
+                </table>
+            </div>
+        </div>
+    </div>{% endblock %}{% block scripts %}
+    <script>new Chart(document.getElementById('grafico'),{type:'line',data:{labels:{{dias|map(attribute='fecha')|map('string')|list|tojson}},datasets:[{label:'Ventas Q',data:{{dias|map(attribute='total')|map('float')|list|tojson}},borderColor:'#3267d6',tension:.3}]},options:{scales:{y:{beginAtZero:true}}}});</script>
+    {% endblock %}
+
+    
+

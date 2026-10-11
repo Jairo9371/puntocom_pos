@@ -1,0 +1,164 @@
+{% extends 'base.html' %}{% block crumb %}Inicio{% endblock %}{% block content
+%}
+<div class="page-header">
+  <div>
+    <h2>Panel principal</h2>
+    <p>Resumen de operaciones de la librería</p>
+  </div>
+  <a href="{{url_for('pos')}}" class="btn btn-primary">+ Nueva venta</a>
+</div>
+<div class="stats">
+  {% for label,v in [('Ventas de hoy',stats.ventas|q),('Número de
+  ventas',stats.nventas),('Productos registrados',stats.productos),('Stock bajo
+  o agotado',stats.bajos),('Clientes',stats.clientes),('Ganancia bruta
+  estimada',stats.ganancia|q)] %}
+  <div class="stat"><small>{{label}}</small><strong>{{v}}</strong></div>
+  {% endfor %}
+</div>
+<div class="row g-4 mt-1">
+  <div class="col-lg-7">
+    <div class="panel">
+      <h5>Ventas de los últimos 7 días</h5>
+      <canvas id="chart" height="120"></canvas>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="panel">
+      <h5>Productos más vendidos</h5>
+      <div class="table-responsive">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th>Unidades</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in top %}
+            <tr>
+              <td>{{p.nombre}}</td>
+              <td>{{p.cantidad}}</td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="2">Aún no hay ventas.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-12">
+    <div class="panel">
+      <h5>Ventas recientes</h5>
+      <div class="table-responsive">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Ticket</th>
+              <th>Fecha</th>
+              <th>Cliente</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for v in recientes %}
+            <tr>
+              <td>{{v.numero_ticket}}</td>
+              <td>{{v.fecha_hora|fecha}}</td>
+              <td>{{v.nombre_razon_social}}</td>
+              <td>{{v.total|q}}</td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="4">No hay ventas recientes.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}{% block scripts %}
+<script>
+  new Chart(document.getElementById('chart'),{type:'bar',data:{labels:{{dias|map(attribute='fecha')|map('string')|list|tojson}},datasets:[{label:'Ventas Q',data:{{dias|map(attribute='total')|map('float')|list|tojson}},backgroundColor:'#3267d6',borderRadius:7}]},options:{scales:{y:{beginAtZero:true}}}})
+</script>
+{% endblock %}
+
+
+<div class="row g-3 mb-4">
+
+    <div class="col-md-3">
+        <div class="card shadow-sm p-3">
+            <h6>Ventas de hoy</h6>
+            <h3 class="text-primary">
+                Q {{ "%.2f"|format(resumen.total_ventas) }}
+            </h3>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card shadow-sm p-3">
+            <h6>Ventas realizadas</h6>
+            <h3>{{ resumen.cantidad_ventas }}</h3>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card shadow-sm p-3">
+            <h6>Productos registrados</h6>
+            <h3>{{ inventario.total_productos }}</h3>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card shadow-sm p-3">
+            <h6>Stock bajo</h6>
+            <h3 class="text-warning">
+                {{ inventario.stock_bajo }}
+            </h3>
+        </div>
+    </div>
+
+</div>
+
+<div class="card shadow-sm p-4 mb-4">
+    <h5>Ventas de los últimos 7 días</h5>
+    <div style="height: 320px;">
+        <canvas id="graficoVentas"></canvas>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+    const fechas = {{ grafico_fechas | tojson }};
+    const totales = {{ grafico_totales | tojson }};
+
+    new Chart(
+        document.getElementById("graficoVentas"),
+        {
+            type: "bar",
+            data: {
+                labels: fechas,
+                datasets: [{
+                    label: "Ventas en quetzales",
+                    data: totales,
+                    backgroundColor: "#2563eb",
+                    borderRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        }
+    );
+</script>
