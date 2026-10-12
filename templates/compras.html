@@ -1,1 +1,102 @@
-{% extends 'base.html' %}{% block crumb %}Compras{% endblock %}{% block content %}<div class="page-header"><h2>Compras a proveedores</h2><button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#compra">+ Registrar compra</button></div><div class="panel table-responsive"><table class="table"><thead><tr><th>ID</th><th>Fecha</th><th>Proveedor</th><th>Factura</th><th>Método</th><th>Total</th></tr></thead><tbody>{% for c in data %}<tr><td>{{c.id_compra}}</td><td>{{c.fecha|fecha}}</td><td>{{c.razon_social}}</td><td>{{c.numero_factura or '-'}}</td><td>{{c.metodo_pago}}</td><td>{{c.total|q}}</td></tr>{% else %}<tr><td colspan="6">Sin compras.</td></tr>{% endfor %}</tbody></table></div><div class="modal fade" id="compra"><div class="modal-dialog"><form method="post" action="{{url_for('compra_nueva')}}" class="modal-content"><input type="hidden" name="csrf_token" value="{{csrf_token()}}"><div class="modal-header"><h5>Nueva compra (un artículo por registro)</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div><div class="modal-body"><label class="form-label">Proveedor</label><select name="id_proveedor" class="form-select mb-3" required>{% for x in proveedores %}<option value="{{x.id_proveedor}}">{{x.razon_social}}</option>{% endfor %}</select><label class="form-label">Producto</label><select class="form-select mb-3" name="id_producto" required>{% for x in productos %}<option value="{{x.id_producto}}">{{x.codigo}} - {{x.nombre}}</option>{% endfor %}</select><label class="form-label">Cantidad</label><input class="form-control mb-3" type="number" min="1" name="cantidad" required><label class="form-label">Costo unitario Q</label><input class="form-control mb-3" type="number" min="0" step=".01" name="costo_unitario" required><label class="form-label">Número factura</label><input class="form-control mb-3" name="numero_factura"><label class="form-label">Método de pago</label><select name="metodo_pago" class="form-select"><option>EFECTIVO</option><option>TARJETA</option><option>TRANSFERENCIA</option><option>CRÉDITO</option></select></div><div class="modal-footer"><button class="btn btn-primary">Confirmar compra</button></div></form></div></div>{% endblock %}
+{% extends 'base.html' %}{% block crumb %}Compras{% endblock %}{% block content
+%}
+<div class="page-header">
+  <h2>Compras a proveedores</h2>
+  <button
+    class="btn btn-primary"
+    data-bs-toggle="modal"
+    data-bs-target="#compra"
+  >
+    + Registrar compra
+  </button>
+</div>
+<div class="panel table-responsive">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Fecha</th>
+        <th>Proveedor</th>
+        <th>Factura</th>
+        <th>Método</th>
+        <th>Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in data %}
+      <tr>
+        <td>{{c.id_compra}}</td>
+        <td>{{c.fecha|fecha}}</td>
+        <td>{{c.razon_social}}</td>
+        <td>{{c.numero_factura or '-'}}</td>
+        <td>{{c.metodo_pago}}</td>
+        <td>{{c.total|q}}</td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="6">Sin compras.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<div class="modal fade" id="compra">
+  <div class="modal-dialog">
+    <form
+      method="post"
+      action="{{url_for('compra_nueva')}}"
+      class="modal-content"
+    >
+      <input type="hidden" name="csrf_token" value="{{csrf_token()}}" />
+      <div class="modal-header">
+        <h5>Nueva compra (un artículo por registro)</h5>
+        <button
+          class="btn-close"
+          type="button"
+          data-bs-dismiss="modal"
+        ></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label">Proveedor</label
+        ><select name="id_proveedor" class="form-select mb-3" required>
+          {% for x in proveedores %}
+          <option value="{{x.id_proveedor}}">{{x.razon_social}}</option>
+          {% endfor %}</select
+        ><label class="form-label">Producto</label
+        ><select class="form-select mb-3" name="id_producto" required>
+          {% for x in productos %}
+          <option value="{{x.id_producto}}">{{x.codigo}} - {{x.nombre}}</option>
+          {% endfor %}</select
+        ><label class="form-label">Cantidad</label
+        ><input
+          class="form-control mb-3"
+          type="number"
+          min="1"
+          name="cantidad"
+          required
+        /><label class="form-label">Costo unitario Q</label
+        ><input
+          class="form-control mb-3"
+          type="number"
+          min="0"
+          step=".01"
+          name="costo_unitario"
+          required
+        /><label class="form-label">Número factura</label
+        ><input class="form-control mb-3" name="numero_factura" /><label
+          class="form-label"
+          >Método de pago</label
+        ><select name="metodo_pago" class="form-select">
+          <option>EFECTIVO</option>
+          <option>TARJETA</option>
+          <option>TRANSFERENCIA</option>
+          <option>CRÉDITO</option>
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary">Confirmar compra</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

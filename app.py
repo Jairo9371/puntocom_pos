@@ -6,6 +6,7 @@ from openpyxl.styles import Font, PatternFill
 from flask import send_file
 from sqlalchemy import text
 import os
+import re
 import secrets
 from datetime import datetime, date, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -22,6 +23,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import URL
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
+from flask_login import current_user
 
 load_dotenv()
 app = Flask(__name__)
@@ -29,7 +31,7 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or ('dev-only-' + secret
 app.config['SQLALCHEMY_DATABASE_URI'] = URL.create(
     'postgresql+psycopg2', username=os.getenv('DB_USER', 'postgres'),
     password=os.getenv('DB_PASSWORD', ''), host=os.getenv('DB_HOST', '127.0.0.1'),
-    port=int(os.getenv('DB_PORT', '5432')), database=os.getenv('DB_NAME', 'punto_com_db'))
+    port=int(os.getenv('DB_PORT', '5433')), database=os.getenv('DB_NAME', 'puntocom_pos'))
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
@@ -116,7 +118,34 @@ def fecha(v):
 
 @app.context_processor
 def global_vars():
-    return {'shop_name':'PUNTO COM', 'clock_today':datetime.now(TZ).strftime('%d/%m/%Y')}
+    alertas = []
+    total_alertas = 0
+
+    if current_user.is_authenticated:
+        alertas = rows("""
+            SELECT
+                vi.codigo,
+                vi.nombre,
+                vi.existencia_actual,
+                vi.stock_minimo
+            FROM vista_inventario vi
+            JOIN producto p
+                ON p.id_producto = vi.id_producto
+            WHERE p.estado = TRUE
+              AND vi.existencia_actual <= vi.stock_minimo
+            ORDER BY vi.existencia_actual ASC
+            LIMIT 20
+        """)
+
+        total_alertas = len(alertas)
+
+    return {
+        'shop_name': 'PUNTO COM',
+        'clock_today': datetime.now(TZ).strftime('%d/%m/%Y'),
+        'total_alertas': total_alertas,
+        'alertas': alertas
+    }
+
 
 @app.errorhandler(403)
 def no_permisos(_):
@@ -147,95 +176,127 @@ def logout():
     flash('Sesión cerrada.', 'success')
     return redirect(url_for('login'))
 
+
 @app.get('/')
 @login_required
 def dashboard():
-    stats = one('''SELECT
-     (SELECT COALESCE(SUM(total),0) FROM venta WHERE fecha_hora::date=CURRENT_DATE AND estado='COMPLETADA') AS ventas,
-     (SELECT COUNT(*) FROM venta WHERE fecha_hora::date=CURRENT_DATE AND estado='COMPLETADA') AS nventas,
-     (SELECT COUNT(*) FROM producto WHERE estado=TRUE) AS productos,
-     (SELECT COUNT(*) FROM vista_inventario WHERE existencia_actual<=stock_minimo) AS bajos,
-     (SELECT COUNT(*) FROM cliente) AS clientes,
-     (SELECT COALESCE(SUM((dv.precio_unitario * dv.cantidad - dv.descuento) -
-                          (dv.costo_unitario_historico * dv.cantidad)),0)
-      FROM detalle_venta dv JOIN venta v USING(id_venta)
-      WHERE v.fecha_hora::date=CURRENT_DATE AND v.estado='COMPLETADA') AS ganancia''')
-    recientes = rows('''SELECT v.numero_ticket,v.fecha_hora,v.total,c.nombre_razon_social
-                       FROM venta v JOIN cliente c USING(id_cliente) ORDER BY v.id_venta DESC LIMIT 8''')
-    top = rows('''SELECT p.nombre,SUM(d.cantidad) AS cantidad
-                  FROM detalle_venta d JOIN venta v USING(id_venta) JOIN producto p USING(id_producto)
-                  WHERE v.estado='COMPLETADA' GROUP BY p.id_producto,p.nombre ORDER BY cantidad DESC LIMIT 5''')
-    dias = rows('''SELECT d::date AS fecha, COALESCE(SUM(v.total),0) AS total
-                    FROM generate_series(CURRENT_DATE - INTERVAL '6 days',CURRENT_DATE,INTERVAL '1 day') d
-                    LEFT JOIN venta v ON v.fecha_hora::date=d::date AND v.estado='COMPLETADA'
-                    GROUP BY d ORDER BY d''')
-    
-        
 
-        # Estadísticas de ventas del día
-        resumen = db.session.execute(text("""
-            SELECT
-                COUNT(*) AS cantidad_ventas,
-                COALESCE(SUM(total), 0) AS total_ventas
-            FROM venta
-            WHERE fecha_hora >= CURRENT_DATE
-            AND fecha_hora < CURRENT_DATE + INTERVAL '1 day'
-            AND estado = 'COMPLETADA'
-        """)).mappings().one()
+    # Estadísticas principales
+    stats = one("""
+        SELECT
+            (SELECT COALESCE(SUM(total), 0)
+             FROM venta
+             WHERE fecha_hora::date = CURRENT_DATE
+             AND estado = 'COMPLETADA') AS ventas,
 
-        # Estadísticas de productos
-        inventario = db.session.execute(text("""
-            SELECT
-                COUNT(*) AS total_productos,
-                COUNT(*) FILTER (
-                    WHERE existencia_actual > 0
-                    AND existencia_actual <= stock_minimo
-                ) AS stock_bajo,
-                COUNT(*) FILTER (
-                    WHERE existencia_actual = 0
-                ) AS agotados
-            FROM vista_inventario
-        """)).mappings().one()
+            (SELECT COUNT(*)
+             FROM venta
+             WHERE fecha_hora::date = CURRENT_DATE
+             AND estado = 'COMPLETADA') AS nventas,
 
-        # Clientes registrados
-        total_clientes = db.session.execute(text("""
-            SELECT COUNT(*) FROM cliente
-        """)).scalar_one()
+            (SELECT COUNT(*)
+             FROM producto
+             WHERE estado = TRUE) AS productos,
 
-        # Ventas de los últimos 7 días, incluyendo días sin ventas
-        ventas_semana = db.session.execute(text("""
-            SELECT
-                d.fecha::date AS fecha,
-                COALESCE(SUM(v.total), 0) AS total
-            FROM generate_series(
-                CURRENT_DATE - INTERVAL '6 days',
-                CURRENT_DATE,
-                INTERVAL '1 day'
-            ) AS d(fecha)
-            LEFT JOIN venta v
-                ON v.fecha_hora >= d.fecha
-            AND v.fecha_hora < d.fecha + INTERVAL '1 day'
+            (SELECT COUNT(*)
+             FROM vista_inventario
+             WHERE existencia_actual <= stock_minimo
+             AND existencia_actual > 0) AS bajos,
+
+            (SELECT COUNT(*)
+             FROM cliente) AS clientes,
+
+            (SELECT COALESCE(SUM(
+                (dv.precio_unitario * dv.cantidad - dv.descuento)
+                - (dv.costo_unitario_historico * dv.cantidad)
+             ), 0)
+             FROM detalle_venta dv
+             JOIN venta v USING(id_venta)
+             WHERE v.fecha_hora::date = CURRENT_DATE
+             AND v.estado = 'COMPLETADA') AS ganancia
+    """)
+
+    # Últimas ventas realizadas
+    recientes = rows("""
+        SELECT
+            v.numero_ticket,
+            v.fecha_hora,
+            v.total,
+            c.nombre_razon_social
+        FROM venta v
+        JOIN cliente c USING(id_cliente)
+        ORDER BY v.id_venta DESC
+        LIMIT 8
+    """)
+
+    # Productos más vendidos
+    top = rows("""
+        SELECT
+            p.nombre,
+            SUM(d.cantidad) AS cantidad
+        FROM detalle_venta d
+        JOIN venta v USING(id_venta)
+        JOIN producto p USING(id_producto)
+        WHERE v.estado = 'COMPLETADA'
+        GROUP BY p.id_producto, p.nombre
+        ORDER BY cantidad DESC
+        LIMIT 5
+    """)
+
+    # Ventas de los últimos 7 días
+    dias = rows("""
+        SELECT
+            d::date AS fecha,
+            COALESCE(SUM(v.total), 0) AS total
+        FROM generate_series(
+            CURRENT_DATE - INTERVAL '6 days',
+            CURRENT_DATE,
+            INTERVAL '1 day'
+        ) d
+        LEFT JOIN venta v
+            ON v.fecha_hora::date = d::date
             AND v.estado = 'COMPLETADA'
-            GROUP BY d.fecha
-            ORDER BY d.fecha
-        """)).mappings().all()
+        GROUP BY d
+        ORDER BY d
+    """)
+    
+    # Ventas mensuales del año actual
+    ventas_mensuales = rows("""
+        SELECT
+            m.mes,
+            COALESCE(SUM(v.total), 0) AS total
+        FROM generate_series(1, 12) AS m(mes)
+        LEFT JOIN venta v
+            ON EXTRACT(MONTH FROM v.fecha_hora) = m.mes
+            AND EXTRACT(YEAR FROM v.fecha_hora)
+                = EXTRACT(YEAR FROM CURRENT_DATE)
+            AND v.estado = 'COMPLETADA'
+        GROUP BY m.mes
+        ORDER BY m.mes
+    """)
 
-        grafico_fechas = [
-            fila["fecha"].strftime("%d/%m")
-            for fila in ventas_semana
-        ]
+    meses = [
+        "Enero", "Febrero", "Marzo", "Abril",
+        "Mayo", "Junio", "Julio", "Agosto",
+        "Septiembre", "Octubre", "Noviembre",
+        "Diciembre"
+    ]
 
-        grafico_totales = [
-            float(fila["total"])
-            for fila in ventas_semana
-        ]
+    totales_mensuales = [
+        float(fila["total"])
+        for fila in ventas_mensuales
+    ]
 
-    return render_template('dashboard.html', stats=stats, recientes=recientes, top=top, dias=dias,
-                        resumen=resumen,
-                        inventario=inventario,
-                        total_clientes=total_clientes,
-                        grafico_fechas=grafico_fechas,
-                        grafico_totales=grafico_totales)
+    # Enviar los resultados a la plantilla HTML
+    return render_template(
+        'dashboard.html',
+        stats=stats,
+        recientes=recientes,
+        top=top,
+        dias=dias,
+        meses=meses,
+        totales_mensuales=totales_mensuales
+    )
 
 @app.get('/productos')
 @login_required
@@ -261,7 +322,8 @@ def producto_form(pid=None):
         try:
             payload={'categoria':number('id_categoria',1),'codigo':required('codigo'),
                      'barras':request.form.get('codigo_barras','').strip() or None,
-                     'nombre':required('nombre'),'marca':request.form.get('marca','').strip(),
+                     'nombre':required('nombre'),
+                     'marca':solo_letras(request.form.get('marca',''), 'Marca', obligatorio=False),
                      'unidad':required('unidad'),'costo':numeric('costo'),
                      'precio':numeric('precio_venta'),'minimo':number('stock_minimo'),
                      'activo': bool(request.form.get('estado'))}
@@ -284,7 +346,7 @@ def producto_form(pid=None):
             db.session.commit(); flash('Producto guardado correctamente.','success')
             return redirect(url_for('productos'))
         except (ValueError,IntegrityError) as e:
-            db.session.rollback(); flash('Revisa los datos, categoría o códigos duplicados. '+(str(e) if isinstance(e,ValueError) else ''),'danger')
+            db.session.rollback(); flash(str(e) if isinstance(e, ValueError) else 'Revisa la categoría o los códigos duplicados.', 'danger')
         except Exception:
             db.session.rollback(); app.logger.exception('Guardar producto'); flash('Error al guardar producto.','danger')
     return render_template('producto_form.html',item=producto,categorias=rows('SELECT * FROM categoria ORDER BY nombre'))
@@ -309,7 +371,7 @@ def inventario_movimiento():
     try:
         pid=number('id_producto',1); cant=number('cantidad',1); tipo=required('tipo')
         if tipo not in ('ENTRADA','SALIDA'): raise ValueError('Tipo de movimiento inválido.')
-        motivo=required('motivo')
+        motivo=solo_letras(required('motivo'), 'Motivo de inventario')
         # Adquirir bloqueo antes de leer existencias y actualizar.
         p=one('SELECT id_producto,costo FROM producto WHERE id_producto=:id FOR UPDATE',id=pid)
         if not p: raise ValueError('Producto no existe.')
@@ -324,6 +386,84 @@ def inventario_movimiento():
         db.session.rollback(); app.logger.exception('Inventario'); flash('No fue posible actualizar inventario.','danger')
     return redirect(url_for('inventario'))
 
+# Reglas solicitadas: letras, espacios, tildes y eñe.
+# No se aceptan números, puntos ni guiones en los campos indicados.
+RE_SOLO_LETRAS = re.compile(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+(?: [A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+)*")
+
+def solo_letras(valor, etiqueta, obligatorio=True):
+    valor = (valor or '').strip()
+    if not valor and not obligatorio:
+        return valor
+    if not RE_SOLO_LETRAS.fullmatch(valor):
+        raise ValueError(f'{etiqueta}: solo se permiten letras y espacios.')
+    return valor
+
+
+# Validaciones del backend para los formularios administrativos.
+# HTML por sí solo no es una protección suficiente.
+RE_NOMBRE_PERSONA = re.compile(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+(?:[ .'-][A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+)*")
+RE_TELEFONO_GT = re.compile(r"[0-9]{8}")
+RE_DPI = re.compile(r"[0-9]{13}")
+RE_NIT = re.compile(r"[0-9]{1,12}-?[0-9K]")
+RE_CORREO = re.compile(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+")
+
+
+def validar_datos_gestion(modulo, data):
+    """Normaliza campos y valida según la entidad antes de INSERT/UPDATE."""
+    # Evitar valores que excedan los límites del esquema actual.
+    limites = {
+        'categorias': {'nombre': 100},
+        'clientes': {'nombre_razon_social': 150, 'nit_dpi': 30, 'telefono': 20, 'correo': 150},
+        'proveedores': {'razon_social': 150, 'nit': 30, 'contacto': 100, 'telefono': 20, 'correo': 150},
+    }
+    for campo, limite in limites.get(modulo, {}).items():
+        valor = data.get(campo)
+        if valor is not None and len(valor) > limite:
+            raise ValueError(f'El campo {campo.replace("_", " ")} supera {limite} caracteres.')
+
+    if modulo == 'categorias':
+        data['nombre'] = solo_letras(data['nombre'], 'Nombre de categoría')
+        data['descripcion'] = solo_letras(data.get('descripcion'), 'Descripción de categoría', obligatorio=False)
+
+    elif modulo in ('clientes', 'proveedores'):
+        campo_nombre = 'nombre_razon_social' if modulo == 'clientes' else 'razon_social'
+        nombre = data[campo_nombre]
+        if not nombre:
+            raise ValueError('El nombre o razón social es obligatorio.')
+        if modulo == 'clientes':
+            data[campo_nombre] = solo_letras(nombre, 'Nombre de cliente')
+        else:
+            data[campo_nombre] = nombre  # Se admiten números y signos en razones sociales.
+
+        if modulo == 'proveedores':
+            data['contacto'] = solo_letras(data.get('contacto'), 'Nombre del contacto', obligatorio=False)
+
+        telefono = data.get('telefono')
+        if telefono and not RE_TELEFONO_GT.fullmatch(telefono):
+            raise ValueError('El teléfono debe contener exactamente 8 números.')
+
+        correo = data.get('correo')
+        if correo:
+            correo = correo.lower()
+            if not RE_CORREO.fullmatch(correo):
+                raise ValueError('Introduce un correo electrónico válido.')
+            data['correo'] = correo
+
+        campo_nit = 'nit_dpi' if modulo == 'clientes' else 'nit'
+        nit = data.get(campo_nit)
+        if nit:
+            nit = nit.upper().replace(' ', '')
+            # Consumidor Final es un registro especial, no un NIT normal.
+            if modulo == 'clientes' and nit == 'CF':
+                if nombre.casefold() != 'consumidor final':
+                    raise ValueError('El identificador CF está reservado para Consumidor Final.')
+            elif not (RE_DPI.fullmatch(nit) if modulo == 'clientes' else False) and not RE_NIT.fullmatch(nit):
+                raise ValueError('Ingrese un NIT válido en formato o DPI de 13 dígitos.')
+            data[campo_nit] = nit
+
+    return data
+
+
 # CRUD sencillo de categorías, clientes y proveedores usando formularios genéricos.
 CRUD = {
  'categorias': {'tabla':'categoria','pk':'id_categoria','campos':['nombre','descripcion'],'titulo':'Categorías','roles':INV},
@@ -331,28 +471,97 @@ CRUD = {
  'proveedores': {'tabla':'proveedor','pk':'id_proveedor','campos':['razon_social','nit','contacto','telefono','correo','direccion'],'titulo':'Proveedores','roles':INV},
 }
 
-@app.route('/gestion/<modulo>',methods=['GET','POST'])
+@app.route('/gestion/<modulo>', methods=['GET', 'POST'])
 @login_required
 def gestion(modulo):
-    config=CRUD.get(modulo)
-    if not config: abort(404)
-    if request.method=='POST':
-        if current_user.rol not in config['roles']: abort(403)
+    config = CRUD.get(modulo)
+    if not config:
+        abort(404)
+
+    if request.method == 'POST':
+        if current_user.rol not in config['roles']:
+            abort(403)
         try:
-            campos=config['campos']; data={c:request.form.get(c,'').strip() or None for c in campos}
-            if not data[campos[0]]: raise ValueError('El nombre es obligatorio.')
-            rid=request.form.get('id','').strip()
+            campos = config['campos']
+            data = {c: request.form.get(c, '').strip() or None for c in campos}
+
+            
+            if modulo == 'categorias':
+                data['nombre'] = solo_letras(
+                    required('nombre'),
+                    'Nombre de categoría'
+                )
+
+                if data['descripcion']:
+                    data['descripcion'] = solo_letras(
+                        data['descripcion'],
+                        'Descripción de categoría'
+                    )
+
+            if modulo == 'proveedores' and data['contacto']:
+                data['contacto'] = solo_letras(
+                    data['contacto'],
+                    'Contacto del proveedor'
+                )
+
+            data = validar_datos_gestion(modulo, data)
+            rid = request.form.get('id', '').strip()
+
             if rid:
-                changes=','.join(f'{c}=:{c}' for c in campos)
-                db.session.execute(text(f"UPDATE {config['tabla']} SET {changes} WHERE {config['pk']}=:rid"),{**data,'rid':int(rid)})
+                if not rid.isdigit():
+                    raise ValueError('El identificador del registro no es válido.')
+                existente = one(
+                    f"SELECT {config['pk']} FROM {config['tabla']} WHERE {config['pk']}=:rid",
+                    rid=int(rid)
+                )
+                if not existente:
+                    raise ValueError('El registro que intentas editar no existe.')
+
+            # Evitar duplicados de documentos, sin impedir editar el mismo registro.
+            if modulo in ('clientes', 'proveedores'):
+                documento = 'nit_dpi' if modulo == 'clientes' else 'nit'
+                nit = data.get(documento)
+                if nit:
+                    duplicado = one(
+                        f"SELECT {config['pk']} FROM {config['tabla']} "
+                        f"WHERE UPPER({documento})=:documento "
+                        f"AND {config['pk']}<>:actual LIMIT 1",
+                        documento=nit,
+                        actual=int(rid) if rid else -1
+                    )
+                    if duplicado:
+                        raise ValueError('Ya existe un registro con ese NIT o DPI.')
+
+            if rid:
+                changes = ','.join(f'{c}=:{c}' for c in campos)
+                db.session.execute(
+                    text(f"UPDATE {config['tabla']} SET {changes} WHERE {config['pk']}=:rid"),
+                    {**data, 'rid': int(rid)}
+                )
             else:
-                db.session.execute(text(f"INSERT INTO {config['tabla']}({','.join(campos)}) VALUES({','.join(':'+c for c in campos)})"),data)
-            db.session.commit(); flash('Registro guardado correctamente.','success')
-        except (ValueError,IntegrityError) as e:
-            db.session.rollback(); flash('Revisa los datos o posibles duplicados.','danger')
-        return redirect(url_for('gestion',modulo=modulo))
-    registros=rows(f"SELECT * FROM {config['tabla']} ORDER BY {config['pk']} DESC")
-    return render_template('gestion.html',modulo=modulo,config=config,data=registros)
+                db.session.execute(
+                    text(
+                        f"INSERT INTO {config['tabla']}({','.join(campos)}) "
+                        f"VALUES({','.join(':'+c for c in campos)})"
+                    ), data
+                )
+
+            db.session.commit()
+            flash('Registro guardado correctamente.', 'success')
+        except ValueError as e:
+            db.session.rollback()
+            flash(str(e), 'danger')
+        except IntegrityError:
+            db.session.rollback()
+            flash('No se pudo guardar: un dato está duplicado o no es válido.', 'danger')
+        except Exception:
+            db.session.rollback()
+            app.logger.exception('Error al guardar en gestión: %s', modulo)
+            flash('No fue posible guardar el registro.', 'danger')
+        return redirect(url_for('gestion', modulo=modulo))
+
+    registros = rows(f"SELECT * FROM {config['tabla']} ORDER BY {config['pk']} DESC")
+    return render_template('gestion.html', modulo=modulo, config=config, data=registros)
 
 @app.get('/pos')
 @role_required(*VENTA)
@@ -570,7 +779,7 @@ def usuarios():
 @role_required(*ADMIN)
 def usuario_crear():
     try:
-        nombre=required('nombre');correo=required('correo').lower();rol=number('id_rol',1);pw=required('password')
+        nombre=solo_letras(required('nombre'), 'Nombre de usuario');correo=required('correo').lower();rol=number('id_rol',1);pw=required('password')
         if len(pw)<12: raise ValueError('La contraseña debe tener al menos 12 caracteres.')
         db.session.execute(text('''INSERT INTO usuario(id_rol,nombre,correo,hash_contrasena,estado)
                VALUES(:rol,:nombre,:correo,:hash,TRUE)'''),{'rol':rol,'nombre':nombre,'correo':correo,'hash':generate_password_hash(pw)})

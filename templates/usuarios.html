@@ -1,1 +1,119 @@
-{% extends 'base.html' %}{% block crumb %}Usuarios{% endblock %}{% block content %}<div class="page-header"><h2>Usuarios y roles</h2><button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#nuevoUsuario">+ Nuevo usuario</button></div><div class="panel table-responsive"><table class="table"><thead><tr><th>ID</th><th>Nombre</th><th>Correo</th><th>Rol</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{% for u in data %}<tr><td>{{u.id_usuario}}</td><td>{{u.nombre}}</td><td>{{u.correo}}</td><td>{{u.rol}}</td><td>{{'Activo' if u.estado else 'Inactivo'}}</td><td><form method="post" action="{{url_for('usuario_estado',uid=u.id_usuario)}}"><input type="hidden" name="csrf_token" value="{{csrf_token()}}"><button class="btn btn-sm btn-outline-secondary">{{'Desactivar' if u.estado else 'Activar'}}</button></form></td></tr>{% endfor %}</tbody></table></div><div class="modal fade" id="nuevoUsuario"><div class="modal-dialog"><form method="post" action="{{url_for('usuario_crear')}}" class="modal-content"><input type="hidden" name="csrf_token" value="{{csrf_token()}}"><div class="modal-header"><h5>Nuevo usuario</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div><div class="modal-body"><label class="form-label">Nombre</label><input name="nombre" class="form-control mb-3" required><label class="form-label">Correo</label><input name="correo" type="email" class="form-control mb-3" required><label class="form-label">Rol</label><select name="id_rol" class="form-select mb-3">{% for r in roles %}<option value="{{r.id_rol}}">{{r.nombre}}</option>{% endfor %}</select><label class="form-label">Contraseña (mínimo 12 caracteres)</label><input type="password" minlength="12" name="password" class="form-control" required></div><div class="modal-footer"><button class="btn btn-primary">Crear usuario</button></div></form></div></div>{% endblock %}
+{% extends 'base.html' %}{% block crumb %}Usuarios{% endblock %}{% block content
+%}
+<div class="page-header">
+  <h2>Usuarios y roles</h2>
+  <button
+    class="btn btn-primary"
+    data-bs-toggle="modal"
+    data-bs-target="#nuevoUsuario"
+  >
+    + Nuevo usuario
+  </button>
+</div>
+<div class="panel table-responsive">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Nombre</th>
+        <th>Correo</th>
+        <th>Rol</th>
+        <th>Estado</th>
+        <th>Acciones</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in data %}
+      <tr>
+        <td>{{u.id_usuario}}</td>
+        <td>{{u.nombre}}</td>
+        <td>{{u.correo}}</td>
+        <td>{{u.rol}}</td>
+        <td>{{'Activo' if u.estado else 'Inactivo'}}</td>
+        <td>
+          <form
+            method="post"
+            action="{{url_for('usuario_estado',uid=u.id_usuario)}}"
+          >
+            <input
+              type="hidden"
+              name="csrf_token"
+              value="{{csrf_token()}}"
+            /><button class="btn btn-sm btn-outline-secondary">
+              {{'Desactivar' if u.estado else 'Activar'}}
+            </button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<div class="modal fade" id="nuevoUsuario">
+  <div class="modal-dialog">
+    <form
+      method="post"
+      action="{{url_for('usuario_crear')}}"
+      class="modal-content"
+    >
+      <input type="hidden" name="csrf_token" value="{{csrf_token()}}" />
+      <div class="modal-header">
+        <h5>Nuevo usuario</h5>
+        <button
+          class="btn-close"
+          type="button"
+          data-bs-dismiss="modal"
+        ></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label">Nombre</label
+        ><input name="nombre" class="form-control mb-3" pattern="[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+( [A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+)*" 
+                oninput="this.value = this.value.replace(/[^a-zA-ZáéíóúÁÉÍÓÚüÜñÑ ]/g, '')"
+                title="Solo letras y espacios" required 
+        /><label
+          class="form-label"
+          >Correo</label
+        ><input
+          name="correo"
+          type="email"
+          class="form-control mb-3"
+          required
+        /><label class="form-label">Rol</label
+        ><select name="id_rol" class="form-select mb-3">
+          {% for r in roles %}
+          <option value="{{r.id_rol}}">{{r.nombre}}</option>
+          {% endfor %}</select
+        ><label class="form-label">Contraseña (mínimo 12 caracteres)</label
+        ><input
+          type="password"
+          minlength="12"
+          name="password"
+          class="form-control"
+          required
+        />
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary">Crear usuario</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+
+    const nombreUsuario =
+        document.getElementById("nombre_usuario");
+
+    if (nombreUsuario) {
+        nombreUsuario.addEventListener("input", function () {
+            this.value = this.value.replace(
+                /[^a-zA-ZáéíóúÁÉÍÓÚüÜñÑ ]/g,
+                ""
+            );
+        });
+    }
+
+});
+</script>

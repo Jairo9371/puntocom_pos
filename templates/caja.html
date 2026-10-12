@@ -1,1 +1,151 @@
-{% extends 'base.html' %}{% block crumb %}Caja{% endblock %}{% block content %}<div class="page-header"><h2>Control de caja</h2>{% if turno %}<span class="badge text-bg-success p-2">Caja abierta</span>{% else %}<span class="badge text-bg-secondary p-2">Sin turno abierto</span>{% endif %}</div><div class="row g-4"><div class="col-lg-5"><div class="panel">{% if not turno %}<h5>Abrir caja</h5><form method="post"><input type="hidden" name="csrf_token" value="{{csrf_token()}}"><input type="hidden" name="accion" value="abrir"><label class="form-label">Fondo inicial Q</label><input class="form-control mb-3" name="fondo_inicial" type="number" min="0" step=".01" value="0.00" required><button class="btn btn-primary">Abrir caja</button></form>{% else %}<h5>Turno #{{turno.id_turno}}</h5><p>Fondo inicial: <b>{{turno.fondo_inicial|q}}</b></p><p>Efectivo esperado: <b>{{saldo|q}}</b></p><hr><h6>Movimiento de efectivo</h6><form method="post"><input type="hidden" name="csrf_token" value="{{csrf_token()}}"><input type="hidden" name="accion" value="movimiento"><select class="form-select mb-2" name="tipo"><option>INGRESO</option><option>EGRESO</option></select><input name="concepto" class="form-control mb-2" placeholder="Concepto" required><input name="monto" class="form-control mb-2" type="number" min=".01" step=".01" placeholder="Monto Q" required><button class="btn btn-primary">Guardar movimiento</button></form><hr><h6>Cerrar turno</h6><form method="post"><input type="hidden" name="csrf_token" value="{{csrf_token()}}"><input type="hidden" name="accion" value="cerrar"><label class="form-label">Efectivo contado Q</label><input name="efectivo_contado" type="number" min="0" step=".01" class="form-control mb-2" required><button class="btn btn-outline-danger" onclick="return confirm('¿Cerrar la caja?')">Cerrar caja</button></form>{% endif %}</div></div><div class="col-lg-7"><div class="panel"><h5>Movimientos del turno</h5><div class="table-responsive"><table class="table"><thead><tr><th>Fecha</th><th>Tipo</th><th>Concepto</th><th>Monto</th></tr></thead><tbody>{% for m in mov %}<tr><td>{{m.fecha_hora|fecha}}</td><td>{{m.tipo}}</td><td>{{m.concepto}}</td><td>{{m.monto|q}}</td></tr>{% else %}<tr><td colspan="4">Sin movimientos actuales.</td></tr>{% endfor %}</tbody></table></div></div></div><div class="col-12"><div class="panel"><h5>Últimos turnos</h5><div class="table-responsive"><table class="table"><thead><tr><th>ID</th><th>Usuario</th><th>Apertura</th><th>Cierre</th><th>Fondo</th><th>Contado</th><th>Estado</th></tr></thead><tbody>{% for t in ultimos %}<tr><td>{{t.id_turno}}</td><td>{{t.usuario}}</td><td>{{t.apertura|fecha}}</td><td>{{t.cierre|fecha}}</td><td>{{t.fondo_inicial|q}}</td><td>{{t.efectivo_contado|q if t.efectivo_contado is not none else '-'}}</td><td>{{t.estado}}</td></tr>{% endfor %}</tbody></table></div></div></div></div>{% endblock %}
+{% extends 'base.html' %}{% block crumb %}Caja{% endblock %}{% block content %}
+<div class="page-header">
+  <h2>Control de caja</h2>
+  {% if turno %}<span class="badge text-bg-success p-2">Caja abierta</span>{%
+  else %}<span class="badge text-bg-secondary p-2">Sin turno abierto</span>{%
+  endif %}
+</div>
+<div class="row g-4">
+  <div class="col-lg-5">
+    <div class="panel">
+      {% if not turno %}
+      <h5>Abrir caja</h5>
+      <form method="post">
+        <input type="hidden" name="csrf_token" value="{{csrf_token()}}" /><input
+          type="hidden"
+          name="accion"
+          value="abrir"
+        /><label class="form-label">Fondo inicial Q</label
+        ><input
+          class="form-control mb-3"
+          name="fondo_inicial"
+          type="number"
+          min="0"
+          step=".01"
+          value="0.00"
+          required
+        /><button class="btn btn-primary">Abrir caja</button>
+      </form>
+      {% else %}
+      <h5>Turno #{{turno.id_turno}}</h5>
+      <p>Fondo inicial: <b>{{turno.fondo_inicial|q}}</b></p>
+      <p>Efectivo esperado: <b>{{saldo|q}}</b></p>
+      <hr />
+      <h6>Movimiento de efectivo</h6>
+      <form method="post">
+        <input type="hidden" name="csrf_token" value="{{csrf_token()}}" /><input
+          type="hidden"
+          name="accion"
+          value="movimiento"
+        /><select class="form-select mb-2" name="tipo">
+          <option>INGRESO</option>
+          <option>EGRESO</option></select
+        ><input
+          name="concepto"
+          class="form-control mb-2"
+          placeholder="Concepto"
+          required
+        /><input
+          name="monto"
+          class="form-control mb-2"
+          type="number"
+          min=".01"
+          step=".01"
+          placeholder="Monto Q"
+          required
+        /><button class="btn btn-primary">Guardar movimiento</button>
+      </form>
+      <hr />
+      <h6>Cerrar turno</h6>
+      <form method="post">
+        <input type="hidden" name="csrf_token" value="{{csrf_token()}}" /><input
+          type="hidden"
+          name="accion"
+          value="cerrar"
+        /><label class="form-label">Efectivo contado Q</label
+        ><input
+          name="efectivo_contado"
+          type="number"
+          min="0"
+          step=".01"
+          class="form-control mb-2"
+          required
+        /><button
+          class="btn btn-outline-danger"
+          onclick="return confirm('¿Cerrar la caja?');"
+        >
+          Cerrar caja
+        </button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div class="panel">
+      <h5>Movimientos del turno</h5>
+      <div class="table-responsive">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Tipo</th>
+              <th>Concepto</th>
+              <th>Monto</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for m in mov %}
+            <tr>
+              <td>{{m.fecha_hora|fecha}}</td>
+              <td>{{m.tipo}}</td>
+              <td>{{m.concepto}}</td>
+              <td>{{m.monto|q}}</td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="4">Sin movimientos actuales.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-12">
+    <div class="panel">
+      <h5>Últimos turnos</h5>
+      <div class="table-responsive">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Usuario</th>
+              <th>Apertura</th>
+              <th>Cierre</th>
+              <th>Fondo</th>
+              <th>Contado</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in ultimos %}
+            <tr>
+              <td>{{t.id_turno}}</td>
+              <td>{{t.usuario}}</td>
+              <td>{{t.apertura|fecha}}</td>
+              <td>{{t.cierre|fecha}}</td>
+              <td>{{t.fondo_inicial|q}}</td>
+              <td>
+                {{t.efectivo_contado|q if t.efectivo_contado is not none else
+                '-'}}
+              </td>
+              <td>{{t.estado}}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

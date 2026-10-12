@@ -1,1 +1,89 @@
-{% extends 'base.html' %}{% block crumb %}Productos{% endblock %}{% block content %}<div class="page-header"><div><h2>Productos</h2><p>Catálogo de productos, precios y existencias</p></div><a class="btn btn-primary" href="{{url_for('producto_form')}}">+ Nuevo producto</a></div><div class="panel"><form method="get" class="row g-2 mb-3"><div class="col-md-6"><input class="form-control" name="q" value="{{request.args.get('q','')}}" placeholder="Buscar por código, barras o nombre"></div><div class="col-md-4"><select class="form-select" name="categoria"><option value="">Todas las categorías</option>{% for c in categorias %}<option value="{{c.id_categoria}}" {% if request.args.get('categoria')==c.id_categoria|string %}selected{% endif %}>{{c.nombre}}</option>{% endfor %}</select></div><div class="col-md-2"><button class="btn btn-outline-primary w-100">Buscar</button></div></form><div class="table-responsive"><table class="table table-hover align-middle"><thead><tr><th>Código</th><th>Producto</th><th>Categoría</th><th>Costo</th><th>Precio</th><th>Stock</th><th>Estado stock</th><th>Acciones</th></tr></thead><tbody>{% for p in data %}<tr><td><b>{{p.codigo}}</b><small class="d-block text-muted">{{p.codigo_barras or ''}}</small></td><td>{{p.nombre}}<small class="d-block text-muted">{{p.marca or ''}}</small></td><td>{{p.categoria}}</td><td>{{p.costo|q}}</td><td>{{p.precio_venta|q}}</td><td>{{p.existencia_actual}}</td><td>{% if p.existencia_actual==0 %}<span class="badge text-bg-danger">Agotado</span>{% elif p.existencia_actual<=p.stock_minimo %}<span class="badge text-bg-warning">Stock bajo</span>{% else %}<span class="badge text-bg-success">Disponible</span>{% endif %}</td><td><a class="btn btn-sm btn-outline-primary" href="{{url_for('producto_form',pid=p.id_producto)}}">Editar</a><form class="d-inline" action="{{url_for('producto_estado',pid=p.id_producto)}}" method="post"><input type="hidden" name="csrf_token" value="{{csrf_token()}}"><button class="btn btn-sm btn-outline-secondary">{{'Desactivar' if p.estado else 'Activar'}}</button></form></td></tr>{% else %}<tr><td colspan="8">No hay productos.</td></tr>{% endfor %}</tbody></table></div></div>{% endblock %}
+{% extends 'base.html' %}
+{% block crumb %}Productos{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Productos</h2>
+    <p>Catálogo de productos, precios y existencias</p>
+  </div>
+  <a class="btn btn-primary" href="{{ url_for('producto_form') }}">+ Nuevo producto</a>
+</div>
+
+<div class="panel">
+  <form method="get" class="row g-2 mb-3">
+    <div class="col-md-6">
+      <input class="form-control" name="q" value="{{ request.args.get('q', '') }}"
+             placeholder="Buscar por código, código de barras o nombre" aria-label="Buscar productos">
+    </div>
+    <div class="col-md-4">
+      <select class="form-select" name="categoria" aria-label="Filtrar por categoría">
+        <option value="">Todas las categorías</option>
+        {% for c in categorias %}
+        <option value="{{ c.id_categoria }}"
+                {% if request.args.get('categoria', '') == c.id_categoria|string %}selected{% endif %}>
+          {{ c.nombre }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <button type="submit" class="btn btn-outline-primary w-100">Buscar</button>
+    </div>
+  </form>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle">
+      <thead>
+        <tr>
+          <th>Código</th><th>Producto</th><th>Categoría</th><th>Costo</th>
+          <th>Precio</th><th>Stock</th><th>Estado stock</th><th>Estado producto</th><th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in data %}
+        <tr>
+          <td><b>{{ p.codigo }}</b><small class="d-block text-muted">{{ p.codigo_barras or '' }}</small></td>
+          <td>{{ p.nombre }}<small class="d-block text-muted">{{ p.marca or '' }}</small></td>
+          <td>{{ p.categoria }}</td>
+          <td>{{ p.costo|q }}</td>
+          <td>{{ p.precio_venta|q }}</td>
+          <td>{{ p.existencia_actual }}</td>
+          <td>
+            {% if p.existencia_actual == 0 %}
+            <span class="badge text-bg-danger">Agotado</span>
+            {% elif p.existencia_actual <= p.stock_minimo %}
+            <span class="badge text-bg-warning">Stock bajo</span>
+            {% else %}
+            <span class="badge text-bg-success">Disponible</span>
+            {% endif %}
+          </td>
+          
+            <td>
+                {% if p.estado %}
+                    <span class="badge bg-success">
+                        Activo
+                    </span>
+                {% else %}
+                    <span class="badge bg-secondary">
+                        Inactivo
+                    </span>
+                {% endif %}
+            </td>
+
+          <td>
+            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('producto_form', pid=p.id_producto) }}">Editar</a>
+            <form class="d-inline" action="{{ url_for('producto_estado', pid=p.id_producto) }}" method="post">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-sm btn-outline-secondary">
+                {{ 'Desactivar' if p.estado else 'Activar' }}
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-muted py-4">No hay productos que coincidan con la búsqueda.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,1 +1,90 @@
-{% extends 'base.html' %}{% block crumb %}Productos / {{'Editar' if item else 'Nuevo'}}{% endblock %}{% block content %}<div class="page-header"><h2>{{'Editar producto' if item else 'Nuevo producto'}}</h2><a class="btn btn-outline-secondary" href="{{url_for('productos')}}">Volver</a></div><form method="post" class="panel"><input type="hidden" name="csrf_token" value="{{csrf_token()}}"><div class="row g-3"><div class="col-md-4"><label class="form-label">Código interno *</label><input class="form-control" name="codigo" required value="{{item.codigo if item else ''}}"></div><div class="col-md-4"><label class="form-label">Código de barras</label><input class="form-control" name="codigo_barras" value="{{item.codigo_barras or '' if item else ''}}"></div><div class="col-md-4"><label class="form-label">Marca</label><input class="form-control" name="marca" value="{{item.marca or '' if item else ''}}"></div><div class="col-md-8"><label class="form-label">Nombre *</label><input class="form-control" name="nombre" required value="{{item.nombre if item else ''}}"></div><div class="col-md-4"><label class="form-label">Categoría *</label><select class="form-select" name="id_categoria" required>{% for c in categorias %}<option value="{{c.id_categoria}}" {% if item and c.id_categoria==item.id_categoria %}selected{% endif %}>{{c.nombre}}</option>{% endfor %}</select></div><div class="col-md-3"><label class="form-label">Unidad *</label><select class="form-select" name="unidad">{% for u in ['Unidad','Caja','Paquete','Resma','Docena'] %}<option {% if item and item.unidad==u %}selected{% endif %}>{{u}}</option>{% endfor %}</select></div><div class="col-md-3"><label class="form-label">Costo Q *</label><input type="number" min="0" step=".01" class="form-control" name="costo" required value="{{item.costo if item else '0.00'}}"></div><div class="col-md-3"><label class="form-label">Precio venta Q *</label><input type="number" min="0" step=".01" class="form-control" name="precio_venta" required value="{{item.precio_venta if item else '0.00'}}"></div><div class="col-md-3"><label class="form-label">Stock mínimo *</label><input type="number" min="0" class="form-control" name="stock_minimo" required value="{{item.stock_minimo if item else 5}}"></div>{% if not item %}<div class="col-md-3"><label class="form-label">Stock inicial</label><input type="number" min="0" class="form-control" name="stock_inicial" value="0"></div>{% endif %}<div class="col-md-4"><label class="form-check mt-4"><input type="checkbox" class="form-check-input" name="estado" {% if not item or item.estado %}checked{% endif %}> Producto activo</label></div></div><div class="mt-4"><button class="btn btn-primary">Guardar producto</button></div></form>{% endblock %}
+{% extends 'base.html' %}
+{% block crumb %}Productos / {{ 'Editar' if item else 'Nuevo' }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2>{{ 'Editar producto' if item else 'Nuevo producto' }}</h2>
+  <a class="btn btn-outline-secondary" href="{{ url_for('productos') }}">Volver</a>
+</div>
+
+<form method="post" class="panel">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="row g-3">
+    <div class="col-md-4">
+      <label class="form-label" for="codigo">Código interno *</label>
+      <input id="codigo" class="form-control" name="codigo" required maxlength="50"
+             value="{{ item.codigo if item else '' }}">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label" for="codigo_barras">Código de barras</label>
+      <input id="codigo_barras" class="form-control" name="codigo_barras" maxlength="100"
+             value="{{ (item.codigo_barras or '') if item else '' }}">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label" for="marca">Marca</label>
+      <input id="marca" class="form-control" name="marca" maxlength="100" pattern="[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+( [A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+)*" 
+            oninput="this.value = this.value.replace(/[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ ]/g, '')"
+            title="Solo letras y espacios"
+             value="{{ (item.marca or '') if item else '' }}">
+    </div>
+    <div class="col-md-8">
+      <label class="form-label" for="nombre">Nombre *</label>
+      <input id="nombre" class="form-control" name="nombre" required maxlength="150"
+             value="{{ item.nombre if item else '' }}">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label" for="id_categoria">Categoría *</label>
+      <select id="id_categoria" class="form-select" name="id_categoria" required>
+        <option value="" {% if not item %}selected{% endif %} disabled>Seleccione una categoría</option>
+        {% for c in categorias %}
+        <option value="{{ c.id_categoria }}"
+                {% if item and c.id_categoria == item.id_categoria %}selected{% endif %}>
+          {{ c.nombre }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label" for="unidad">Unidad *</label>
+      <select id="unidad" class="form-select" name="unidad" required>
+        {% for u in ['Unidad', 'Caja', 'Paquete', 'Resma', 'Docena'] %}
+        <option value="{{ u }}" {% if item and item.unidad == u %}selected{% endif %}>{{ u }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label" for="costo">Costo Q *</label>
+      <input id="costo" type="number" min="0" step="0.01" class="form-control"
+             name="costo" required value="{{ item.costo if item else '0.00' }}">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label" for="precio_venta">Precio de venta Q *</label>
+      <input id="precio_venta" type="number" min="0" step="0.01" class="form-control"
+             name="precio_venta" required value="{{ item.precio_venta if item else '0.00' }}">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label" for="stock_minimo">Stock mínimo *</label>
+      <input id="stock_minimo" type="number" min="0" step="1" class="form-control"
+             name="stock_minimo" required value="{{ item.stock_minimo if item else 5 }}">
+    </div>
+    {% if not item %}
+    <div class="col-md-3">
+      <label class="form-label" for="stock_inicial">Stock inicial</label>
+      <input id="stock_inicial" type="number" min="0" step="1" class="form-control"
+             name="stock_inicial" value="0">
+      <small class="text-muted">Las unidades se registrarán en movimientos de inventario.</small>
+    </div>
+    {% endif %}
+    <div class="col-md-4">
+      <div class="form-check mt-4">
+        <input id="estado" type="checkbox" class="form-check-input" name="estado"
+               {% if not item or item.estado %}checked{% endif %}>
+        <label class="form-check-label" for="estado">Producto activo</label>
+      </div>
+    </div>
+  </div>
+  <div class="mt-4 d-flex gap-2">
+    <button type="submit" class="btn btn-primary">Guardar producto</button>
+    <a href="{{ url_for('productos') }}" class="btn btn-outline-secondary">Cancelar</a>
+  </div>
+</form>
+{% endblock %}

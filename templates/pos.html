@@ -1,1 +1,305 @@
-{% extends 'base.html' %}{% block crumb %}Punto de Venta{% endblock %}{% block content %}<div class="page-header"><div><h2>Punto de Venta</h2><p>Selecciona productos y cobra en quetzales</p></div>{% if not turno %}<a class="btn btn-warning" href="{{url_for('caja')}}">⚠ Abre caja antes de vender</a>{% else %}<span class="badge text-bg-success p-2">Caja abierta #{{turno.id_turno}}</span>{% endif %}</div><div class="row g-4"><div class="col-lg-6"><div class="panel"><h5>Buscar productos</h5><input id="buscar" class="form-control mb-3" autofocus placeholder="Código, barras o nombre..."><div id="catalogo" class="catalogo"></div></div></div><div class="col-lg-6"><div class="panel sticky-lg-top" style="top:90px"><h5>Carrito de venta</h5><label class="form-label mt-2">Cliente</label><select id="cliente" class="form-select mb-3">{% for c in clientes %}<option value="{{c.id_cliente}}" {% if c.nombre_razon_social=='Consumidor Final' %}selected{% endif %}>{{c.nombre_razon_social}}</option>{% endfor %}</select><div class="table-responsive"><table class="table table-sm"><thead><tr><th>Producto</th><th>Cant.</th><th>Precio</th><th>Desc. Q</th><th>Subtotal</th><th></th></tr></thead><tbody id="carrito"></tbody></table></div><div class="border-top pt-3"><div class="d-flex justify-content-between"><span>Subtotal</span><strong id="subtotal">Q 0.00</strong></div><div class="d-flex justify-content-between"><span>Descuentos</span><strong id="descuentos">Q 0.00</strong></div><div class="d-flex justify-content-between mt-3 total-line"><span>TOTAL</span><strong id="total">Q 0.00</strong></div></div><div class="d-flex gap-2 mt-3"><button class="btn btn-outline-danger" onclick="vaciar()">Vaciar</button><button class="btn btn-primary flex-grow-1 py-3" onclick="abrirCobro()" {% if not turno %}disabled{% endif %}>COBRAR</button></div></div></div></div><div class="modal fade" id="cobroModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5>Confirmar cobro</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><h2 id="modal-total" class="text-center my-3"></h2><label class="form-label">Método de pago</label><select id="metodo" onchange="pagoCambia()" class="form-select mb-3"><option value="EFECTIVO">Efectivo</option><option value="TARJETA">Tarjeta</option><option value="TRANSFERENCIA">Transferencia</option></select><div id="seccion-recibido"><label class="form-label">Monto recibido</label><input id="recibido" type="number" step="0.01" min="0" class="form-control" oninput="actualizarCambio()"><p class="mt-2">Cambio: <b id="cambio">Q 0.00</b></p></div><div id="error-cobro" class="text-danger"></div></div><div class="modal-footer"><button id="confirmar" class="btn btn-primary w-100" onclick="confirmarCobro()">CONFIRMAR VENTA</button></div></div></div></div>{% endblock %}{% block scripts %}<script>const productos={{products|tojson}};const csrfToken={{csrf_token()|tojson}};let items={};let modal;const q=n=>'Q '+Number(n).toLocaleString('es-GT',{minimumFractionDigits:2,maximumFractionDigits:2});const dec=n=>Math.round((Number(n)+Number.EPSILON)*100)/100;function lista(){const term=document.getElementById('buscar').value.trim().toLowerCase();document.getElementById('catalogo').innerHTML=productos.filter(p=>(p.nombre+' '+p.codigo+' '+(p.codigo_barras||'')).toLowerCase().includes(term)).slice(0,80).map(p=>`<button type="button" class="item-prod" onclick="agregar(${p.id_producto})"><b>${esc(p.codigo)}</b><span>${esc(p.nombre)}</span><strong>${q(p.precio_venta)}</strong><small>Existencia: ${p.existencia_actual}</small></button>`).join('')||'<p class="text-muted">No hay productos disponibles.</p>'}function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}function agregar(id){const p=productos.find(x=>x.id_producto===id);if(!p||p.existencia_actual<=0)return alert('Sin existencias');if(!items[id])items[id]={id:id,cantidad:0,descuento:0};if(items[id].cantidad>=p.existencia_actual)return alert('No hay más existencias');items[id].cantidad++;dibujar();document.getElementById('buscar').value='';lista();document.getElementById('buscar').focus()}function cambiar(id,prop,val){let i=items[id];if(!i)return;let p=productos.find(x=>x.id_producto===id);let n=Number(val);if(!Number.isFinite(n))return;if(prop==='cantidad'){i.cantidad=Math.max(1,Math.min(p.existencia_actual,Math.floor(n)))}else{i.descuento=Math.max(0,Math.min(p.precio_venta*i.cantidad,dec(n)))}dibujar()}function borrar(id){delete items[id];dibujar()}function vaciar(){if(Object.keys(items).length&&!confirm('¿Vaciar carrito?'))return;items={};dibujar()}function resumen(){let bruto=0,desc=0;for(let i of Object.values(items)){let p=productos.find(x=>x.id_producto===i.id);bruto+=p.precio_venta*i.cantidad;desc+=i.descuento}return {bruto:dec(bruto),desc:dec(desc),total:dec(bruto-desc)}}function dibujar(){document.getElementById('carrito').innerHTML=Object.values(items).map(i=>{let p=productos.find(x=>x.id_producto===i.id);return `<tr><td>${esc(p.nombre)}</td><td><input class="form-control form-control-sm qty" type="number" min="1" max="${p.existencia_actual}" value="${i.cantidad}" onchange="cambiar(${i.id},'cantidad',this.value)"></td><td>${q(p.precio_venta)}</td><td><input class="form-control form-control-sm qty" type="number" min="0" step=".01" value="${i.descuento}" onchange="cambiar(${i.id},'descuento',this.value)"></td><td>${q(p.precio_venta*i.cantidad-i.descuento)}</td><td><button class="btn btn-sm btn-outline-danger" onclick="borrar(${i.id})">×</button></td></tr>`}).join('')||'<tr><td colspan="6" class="text-center text-muted py-4">Agrega productos al carrito</td></tr>';let r=resumen();document.getElementById('subtotal').textContent=q(r.bruto);document.getElementById('descuentos').textContent=q(r.desc);document.getElementById('total').textContent=q(r.total)}function abrirCobro(){if(!Object.keys(items).length)return alert('Agrega al menos un producto');document.getElementById('modal-total').textContent=q(resumen().total);document.getElementById('recibido').value=resumen().total;document.getElementById('error-cobro').textContent='';pagoCambia();modal=new bootstrap.Modal(document.getElementById('cobroModal'));modal.show()}function pagoCambia(){document.getElementById('seccion-recibido').style.display=document.getElementById('metodo').value==='EFECTIVO'?'block':'none';actualizarCambio()}function actualizarCambio(){document.getElementById('cambio').textContent=q(Math.max(0,dec((Number(document.getElementById('recibido').value)||0)-resumen().total)))}async function confirmarCobro(){const btn=document.getElementById('confirmar');btn.disabled=true;const payload={items:Object.values(items),cliente_id:document.getElementById('cliente').value,metodo:document.getElementById('metodo').value,recibido:document.getElementById('recibido').value};try{let res=await fetch({{url_for('cobrar')|tojson}},{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},body:JSON.stringify(payload)});let data=await res.json();if(!res.ok||!data.ok)throw Error(data.error||'Error al cobrar');items={};modal.hide();window.location.href='/ventas/'+data.id_venta+'/ticket'}catch(e){document.getElementById('error-cobro').textContent=e.message}finally{btn.disabled=false}}document.getElementById('buscar').addEventListener('input',lista);document.getElementById('buscar').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();let term=e.target.value.trim();let p=productos.find(p=>p.codigo===term||p.codigo_barras===term);if(p)agregar(p.id_producto)}});lista();dibujar();</script>{% endblock %}
+{% extends 'base.html' %}{% block crumb %}Punto de Venta{% endblock %}{% block
+content %}
+<div class="page-header">
+  <div>
+    <h2>Punto de Venta</h2>
+    <p>Selecciona productos y cobra en quetzales</p>
+  </div>
+  {% if not turno %}<a class="btn btn-warning" href="{{url_for('caja')}}"
+    >⚠ Abre caja antes de vender</a
+  >{% else %}<span class="badge text-bg-success p-2"
+    >Caja abierta #{{turno.id_turno}}</span
+  >{% endif %}
+</div>
+<div class="row g-4">
+  <div class="col-lg-6">
+    <div class="panel">
+      <h5>Buscar productos</h5>
+      <input
+        id="buscar"
+        class="form-control mb-3"
+        autofocus
+        placeholder="Código, barras o nombre..."
+      />
+      <div id="catalogo" class="catalogo"></div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="panel sticky-lg-top" style="top: 90px">
+      <h5>Carrito de venta</h5>
+      <label class="form-label mt-2">Cliente</label
+      ><select id="cliente" class="form-select mb-3">
+        {% for c in clientes %}
+        <option value="{{ c.id_cliente }}" {% if c.nombre_razon_social == 'Consumidor Final' %}selected{% endif %}>
+          {{ c.nombre_razon_social }}
+        </option>
+        {% endfor %}
+      </select>
+      <div class="table-responsive">
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th>Cant.</th>
+              <th>Precio</th>
+              <th>Desc. Q</th>
+              <th>Subtotal</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="carrito"></tbody>
+        </table>
+      </div>
+      <div class="border-top pt-3">
+        <div class="d-flex justify-content-between">
+          <span>Subtotal</span><strong id="subtotal">Q 0.00</strong>
+        </div>
+        <div class="d-flex justify-content-between">
+          <span>Descuentos</span><strong id="descuentos">Q 0.00</strong>
+        </div>
+        <div class="d-flex justify-content-between mt-3 total-line">
+          <span>TOTAL</span><strong id="total">Q 0.00</strong>
+        </div>
+      </div>
+      <div class="d-flex gap-2 mt-3">
+        <button class="btn btn-outline-danger" onclick="vaciar()">Vaciar</button
+        ><button
+          class="btn btn-primary flex-grow-1 py-3"
+          onclick="abrirCobro()"
+          {%
+          if
+          not
+          turno
+          %}disabled{%
+          endif
+          %}
+        >
+          COBRAR
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" id="cobroModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5>Confirmar cobro</h5>
+        <button
+          type="button"
+          class="btn-close"
+          data-bs-dismiss="modal"
+        ></button>
+      </div>
+      <div class="modal-body">
+        <h2 id="modal-total" class="text-center my-3"></h2>
+        <label class="form-label">Método de pago</label
+        ><select id="metodo" onchange="pagoCambia()" class="form-select mb-3">
+          <option value="EFECTIVO">Efectivo</option>
+          <option value="TARJETA">Tarjeta</option>
+          <option value="TRANSFERENCIA">Transferencia</option>
+        </select>
+        <div id="seccion-recibido">
+          <label class="form-label">Monto recibido</label
+          ><input
+            id="recibido"
+            type="number"
+            step="0.01"
+            min="0"
+            class="form-control"
+            oninput="actualizarCambio()"
+          />
+          <p class="mt-2">Cambio: <b id="cambio">Q 0.00</b></p>
+        </div>
+        <div id="error-cobro" class="text-danger"></div>
+      </div>
+      <div class="modal-footer">
+        <button
+          id="confirmar"
+          class="btn btn-primary w-100"
+          onclick="confirmarCobro()"
+        >
+          CONFIRMAR VENTA
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+<script id="pos-productos" type="application/json">{{ products | tojson }}</script>
+<div id="pos-config"
+     data-cobrar-url="{{ url_for('cobrar') }}"
+     data-csrf-token="{{ csrf_token() }}" hidden></div>
+{% endblock %}
+{% block scripts %}
+<script>
+  const productos = JSON.parse(document.getElementById('pos-productos').textContent);
+  const configuracionPOS = document.getElementById('pos-config').dataset;
+  const csrfToken = configuracionPOS.csrfToken;
+  const cobrarURL = configuracionPOS.cobrarUrl;
+  let items = {};
+  let modal;
+
+  const q = n => 'Q ' + Number(n).toLocaleString('es-GT', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+  const dec = n => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
+
+  function lista() {
+    const term = document.getElementById('buscar').value.trim().toLowerCase();
+    const encontrados = productos.filter(p =>
+      (p.nombre + ' ' + p.codigo + ' ' + (p.codigo_barras || ''))
+        .toLowerCase().includes(term)
+    ).slice(0, 80);
+    document.getElementById('catalogo').innerHTML = encontrados.map(p => `
+      <button type="button" class="item-prod" onclick="agregar(${Number(p.id_producto)})">
+        <b>${esc(p.codigo)}</b>
+        <span>${esc(p.nombre)}</span>
+        <strong>${q(p.precio_venta)}</strong>
+        <small>Existencia: ${Number(p.existencia_actual)}</small>
+      </button>
+    `).join('') || '<p class="text-muted">No hay productos disponibles.</p>';
+  }
+
+  function agregar(id) {
+    const p = productos.find(x => Number(x.id_producto) === Number(id));
+    if (!p || Number(p.existencia_actual) <= 0) return alert('Sin existencias');
+    if (!items[id]) items[id] = { id: id, cantidad: 0, descuento: 0 };
+    if (items[id].cantidad >= Number(p.existencia_actual)) {
+      return alert('No hay más existencias');
+    }
+    items[id].cantidad++;
+    dibujar();
+    document.getElementById('buscar').value = '';
+    lista();
+    document.getElementById('buscar').focus();
+  }
+
+  function cambiar(id, prop, val) {
+    const i = items[id];
+    if (!i) return;
+    const p = productos.find(x => Number(x.id_producto) === Number(id));
+    if (!p) return;
+    const n = Number(val);
+    if (!Number.isFinite(n)) return;
+    if (prop === 'cantidad') {
+      i.cantidad = Math.max(1, Math.min(Number(p.existencia_actual), Math.floor(n)));
+      i.descuento = Math.min(i.descuento, dec(Number(p.precio_venta) * i.cantidad));
+    } else {
+      i.descuento = Math.max(0, Math.min(Number(p.precio_venta) * i.cantidad, dec(n)));
+    }
+    dibujar();
+  }
+
+  function borrar(id) {
+    delete items[id];
+    dibujar();
+  }
+
+  function vaciar() {
+    if (Object.keys(items).length && !confirm('¿Vaciar carrito?')) return;
+    items = {};
+    dibujar();
+  }
+
+  function resumen() {
+    let bruto = 0;
+    let desc = 0;
+    for (const i of Object.values(items)) {
+      const p = productos.find(x => Number(x.id_producto) === Number(i.id));
+      bruto += Number(p.precio_venta) * i.cantidad;
+      desc += i.descuento;
+    }
+    return { bruto: dec(bruto), desc: dec(desc), total: dec(bruto - desc) };
+  }
+
+  function dibujar() {
+    document.getElementById('carrito').innerHTML = Object.values(items).map(i => {
+      const p = productos.find(x => Number(x.id_producto) === Number(i.id));
+      return `<tr>
+        <td>${esc(p.nombre)}</td>
+        <td><input class="form-control form-control-sm qty" type="number"
+          min="1" max="${Number(p.existencia_actual)}" value="${i.cantidad}"
+          onchange="cambiar(${Number(i.id)}, 'cantidad', this.value)"></td>
+        <td>${q(p.precio_venta)}</td>
+        <td><input class="form-control form-control-sm qty" type="number"
+          min="0" step=".01" value="${i.descuento}"
+          onchange="cambiar(${Number(i.id)}, 'descuento', this.value)"></td>
+        <td>${q(Number(p.precio_venta) * i.cantidad - i.descuento)}</td>
+        <td><button class="btn btn-sm btn-outline-danger"
+          onclick="borrar(${Number(i.id)})">×</button></td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="6" class="text-center text-muted py-4">Agrega productos al carrito</td></tr>';
+    const r = resumen();
+    document.getElementById('subtotal').textContent = q(r.bruto);
+    document.getElementById('descuentos').textContent = q(r.desc);
+    document.getElementById('total').textContent = q(r.total);
+  }
+
+  function abrirCobro() {
+    if (!Object.keys(items).length) return alert('Agrega al menos un producto');
+    document.getElementById('modal-total').textContent = q(resumen().total);
+    document.getElementById('recibido').value = resumen().total;
+    document.getElementById('error-cobro').textContent = '';
+    pagoCambia();
+    modal = new bootstrap.Modal(document.getElementById('cobroModal'));
+    modal.show();
+  }
+
+  function pagoCambia() {
+    document.getElementById('seccion-recibido').style.display =
+      document.getElementById('metodo').value === 'EFECTIVO' ? 'block' : 'none';
+    actualizarCambio();
+  }
+
+  function actualizarCambio() {
+    const recibido = Number(document.getElementById('recibido').value) || 0;
+    document.getElementById('cambio').textContent = q(Math.max(0, dec(recibido - resumen().total)));
+  }
+
+  async function confirmarCobro() {
+    const btn = document.getElementById('confirmar');
+    btn.disabled = true;
+    const payload = {
+      items: Object.values(items),
+      cliente_id: document.getElementById('cliente').value,
+      metodo: document.getElementById('metodo').value,
+      recibido: document.getElementById('recibido').value
+    };
+    try {
+      const res = await fetch(cobrarURL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw Error(data.error || 'Error al cobrar');
+      items = {};
+      modal.hide();
+      window.location.href = '/ventas/' + encodeURIComponent(data.id_venta) + '/ticket';
+    } catch (e) {
+      document.getElementById('error-cobro').textContent = e.message;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  document.getElementById('buscar').addEventListener('input', lista);
+  document.getElementById('buscar').addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const term = e.target.value.trim();
+      const p = productos.find(p => p.codigo === term || p.codigo_barras === term);
+      if (p) agregar(p.id_producto);
+    }
+  });
+  lista();
+  dibujar();
+</script>
+{% endblock %}

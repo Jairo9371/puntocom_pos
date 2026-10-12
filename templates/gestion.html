@@ -1,1 +1,223 @@
-{% extends 'base.html' %}{% block crumb %}{{config.titulo}}{% endblock %}{% block content %}<div class="page-header"><h2>{{config.titulo}}</h2><button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#formModal" onclick="limpiar()">+ Nuevo registro</button></div><div class="panel table-responsive"><table class="table table-hover align-middle"><thead><tr>{% for campo in config.campos %}<th>{{campo.replace('_',' ').capitalize()}}</th>{% endfor %}<th>Acción</th></tr></thead><tbody>{% for r in data %}<tr>{% for campo in config.campos %}<td>{{r[campo] or '—'}}</td>{% endfor %}<td><button class="btn btn-sm btn-outline-primary" onclick='editar({{r|tojson}})' data-bs-toggle="modal" data-bs-target="#formModal">Editar</button></td></tr>{% else %}<tr><td colspan="10">No hay registros.</td></tr>{% endfor %}</tbody></table></div><div class="modal fade" id="formModal" tabindex="-1"><div class="modal-dialog"><form method="post" class="modal-content"><input type="hidden" name="csrf_token" value="{{csrf_token()}}"><input type="hidden" name="id" id="form-id"><div class="modal-header"><h5>Registro de {{config.titulo|lower}}</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body">{% for campo in config.campos %}<label class="form-label">{{campo.replace('_',' ').capitalize()}}</label><input id="field-{{campo}}" name="{{campo}}" class="form-control mb-3" {% if loop.first %}required{% endif %}>{% endfor %}</div><div class="modal-footer"><button class="btn btn-primary">Guardar</button></div></form></div></div>{% endblock %}{% block scripts %}<script>function limpiar(){document.getElementById('form-id').value='';{% for c in config.campos %}document.getElementById('field-{{c}}').value='';{% endfor %}}function editar(obj){document.getElementById('form-id').value=obj.{{config.pk}};{% for c in config.campos %}document.getElementById('field-{{c}}').value=obj.{{c}}??'';{% endfor %}}</script>{% endblock %}
+{% extends 'base.html' %}
+{% block crumb %}{{ config.titulo }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2>{{ config.titulo }}</h2>
+  <button type="button" class="btn btn-primary" data-bs-toggle="modal"
+          data-bs-target="#formModal" onclick="limpiar()">
+    + Nuevo registro
+  </button>
+</div>
+
+<div class="panel table-responsive">
+  <table class="table table-hover align-middle">
+    <thead>
+      <tr>
+        {% for campo in config.campos %}
+          <th>
+            {% if campo == 'nombre_razon_social' %}Nombre completo / Razón social
+            {% elif campo == 'razon_social' %}Nombre del proveedor / Empresa
+            {% elif campo == 'nit_dpi' %}NIT / DPI
+            {% else %}{{ campo.replace('_', ' ').capitalize() }}{% endif %}
+          </th>
+        {% endfor %}
+        <th>Acción</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in data %}
+      <tr>
+        {% for campo in config.campos %}
+          <td>{{ r[campo] if r[campo] is not none else '—' }}</td>
+        {% endfor %}
+        <td>
+          <button type="button" class="btn btn-sm btn-outline-primary"
+                  data-bs-toggle="modal" data-bs-target="#formModal"
+                  data-registro='{{ r | tojson | forceescape }}'
+                  onclick="editarRegistro(this)">Editar</button>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="{{ config.campos|length + 1 }}">No hay registros.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="modal fade" id="formModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" class="modal-content" id="gestion-form" data-pk="{{ config.pk }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="id" id="form-id" data-pk="{{ config.pk }}">
+      <div class="modal-header">
+        <h5 class="modal-title" id="gestion-modal-titulo">Registro de {{ config.titulo|lower }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        {% for campo in config.campos %}
+        <div class="mb-3">
+          <label class="form-label" for="field-{{ campo }}">
+            {% if campo == 'nombre_razon_social' %}Nombre completo / Razón social
+            {% elif campo == 'razon_social' %}Nombre del proveedor / Empresa
+            {% elif campo == 'nit_dpi' %}NIT / DPI
+            {% else %}{{ campo.replace('_', ' ').capitalize() }}{% endif %}
+          </label>
+          {% if campo == 'correo' %}
+            <input type="email" id="field-{{ campo }}" name="{{ campo }}"
+                   class="form-control" maxlength="150" placeholder="ejemplo@correo.com">
+          {% elif campo == 'telefono' %}
+            <input type="tel" id="field-{{ campo }}" name="{{ campo }}"
+                   class="form-control" inputmode="numeric" pattern="[0-9]{8}"
+                   minlength="8" maxlength="8" title="Ingrese exactamente 8 dígitos">
+          {% elif campo == 'nit' %}
+            <input type="text" id="field-{{ campo }}" name="{{ campo }}"
+                   class="form-control text-uppercase" maxlength="20"
+                   pattern="[0-9]+-?[0-9Kk]" title="NIT con números y dígito verificador (0-9 o K)">
+          {% elif campo == 'nit_dpi' %}
+            <input type="text" id="field-{{ campo }}" name="{{ campo }}"
+                   class="form-control text-uppercase" maxlength="20"
+                   pattern="([0-9]{13}|[0-9]+-?[0-9Kk]|[Cc][Ff])"
+                   title="DPI de 13 dígitos, NIT o CF">
+          {% elif campo == 'nombre_razon_social' %}
+            <input type="text" id="field-{{ campo }}" name="{{ campo }}"
+                   class="form-control" maxlength="150" required
+                   pattern="[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+( [A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+)*"
+                   title="Solo letras y espacios">
+          {% elif campo == 'razon_social' %}
+            <input type="text" id="field-{{ campo }}" name="{{ campo }}"
+                   class="form-control" maxlength="150" required>
+          {% elif campo == 'contacto' %}
+            <input type="text" id="field-{{ campo }}" name="{{ campo }}"
+                   class="form-control" maxlength="150"
+                   pattern="[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+( [A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+)*"
+                   title="Use letras, espacios y separadores de nombre">
+          {% elif campo == 'nombre' and modulo == 'categorias' %}
+            <input type="text" id="field-{{ campo }}" name="{{ campo }}"
+                   class="form-control" maxlength="150" pattern="[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+( [A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+)*" title="Solo letras y espacios" required>
+          {% elif campo == 'descripcion' %}
+            <textarea id="field-{{ campo }}" name="{{ campo }}"
+                      class="form-control" rows="3" maxlength="255" pattern="[A-Za-zÁÉÍÓÚÜÑáéíóúüñ ]*" title="Solo letras y espacios"></textarea>
+          {% else %}
+            <input type="text" id="field-{{ campo }}" name="{{ campo }}"
+                   class="form-control" maxlength="255" {% if loop.first %}required{% endif %}>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const reLetras = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+(?: [A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+)*$/;
+  document.getElementById('gestion-form').addEventListener('submit', function(event) {
+    const campo = document.getElementById('field-descripcion');
+    if (campo && campo.value.trim() && !reLetras.test(campo.value.trim())) {
+      event.preventDefault();
+      campo.setCustomValidity('Solo se permiten letras y espacios.');
+      campo.reportValidity();
+    }
+  });
+  const descripcion = document.getElementById('field-descripcion');
+  if (descripcion) descripcion.addEventListener('input', () => descripcion.setCustomValidity(''));
+
+  function limpiar() {
+    const formulario = document.getElementById('gestion-form');
+    formulario.reset();
+    document.getElementById('form-id').value = '';
+    document.getElementById('gestion-modal-titulo').textContent = 'Nuevo registro';
+  }
+
+  function editarRegistro(boton) {
+    const registro = JSON.parse(boton.dataset.registro);
+    const formulario = document.getElementById('gestion-form');
+    formulario.reset();
+    const id = document.getElementById('form-id');
+    id.value = registro[id.dataset.pk] ?? '';
+    Object.keys(registro).forEach(function (campo) {
+      const entrada = formulario.elements.namedItem(campo);
+      if (entrada && entrada.type !== 'hidden') {
+        entrada.value = registro[campo] ?? '';
+      }
+    });
+    document.getElementById('gestion-modal-titulo').textContent = 'Editar registro';
+  }
+
+  
+document.addEventListener("DOMContentLoaded", function () {
+
+    // Nombre del cliente: solo letras y espacios
+    const nombreCliente =
+        document.getElementById("field-nombre_razon_social");
+
+    if (nombreCliente) {
+        nombreCliente.addEventListener("input", function () {
+            this.value = this.value.replace(
+                /[^a-zA-ZáéíóúÁÉÍÓÚüÜñÑ\s]/g,
+                ""
+            );
+        });
+    }
+
+    // Teléfono: solo números, máximo 8 dígitos
+    const telefono =
+        document.getElementById("field-telefono");
+
+    if (telefono) {
+        telefono.setAttribute("inputmode", "numeric");
+        telefono.setAttribute("maxlength", "8");
+
+        telefono.addEventListener("input", function () {
+            this.value = this.value.replace(/\D/g, "").slice(0, 8);
+        });
+    }
+
+});
+
+
+document.addEventListener("DOMContentLoaded", function () {
+
+    const soloLetras = (valor) => {
+        return valor.replace(
+            /[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ ]/g,
+            ""
+        );
+    };
+
+    // Contacto del proveedor
+    if (document.getElementById("field-contacto")) {
+        const contacto = document.getElementById("field-contacto");
+
+        contacto.addEventListener("input", function () {
+            this.value = soloLetras(this.value);
+        });
+    }
+
+    // Nombre y descripción de categorías
+    if (document.getElementById("field-nombre")) {
+        const nombre = document.getElementById("field-nombre");
+
+        nombre.addEventListener("input", function () {
+            this.value = soloLetras(this.value);
+        });
+    }
+
+    if (document.getElementById("field-descripcion")) {
+        const descripcion = document.getElementById("field-descripcion");
+
+        descripcion.addEventListener("input", function () {
+            this.value = soloLetras(this.value);
+        });
+    }
+
+});
+
+
+</script>
+{% endblock %}

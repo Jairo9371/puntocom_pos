@@ -1,1 +1,59 @@
-{% extends 'base.html' %}{% block crumb %}Ventas{% endblock %}{% block content %}<div class="page-header"><h2>Historial de ventas</h2><a href="{{url_for('pos')}}" class="btn btn-primary">+ Nueva venta</a></div><div class="panel"><form class="mb-3"><div class="input-group"><input name="q" class="form-control" placeholder="Buscar por número de ticket" value="{{request.args.get('q','')}}"><button class="btn btn-outline-primary">Buscar</button></div></form><div class="table-responsive"><table class="table table-hover"><thead><tr><th>Ticket</th><th>Fecha</th><th>Cliente</th><th>Cajero</th><th>Método</th><th>Total</th><th>Estado</th><th></th></tr></thead><tbody>{% for v in data %}<tr><td>{{v.numero_ticket}}</td><td>{{v.fecha_hora|fecha}}</td><td>{{v.nombre_razon_social}}</td><td>{{v.cajero}}</td><td>{{v.metodo_pago}}</td><td>{{v.total|q}}</td><td>{{v.estado}}</td><td><a class="btn btn-sm btn-outline-primary" href="{{url_for('ticket',vid=v.id_venta)}}">Ticket</a></td></tr>{% else %}<tr><td colspan="8">No se encontraron ventas.</td></tr>{% endfor %}</tbody></table></div></div>{% endblock %}
+{% extends 'base.html' %}{% block crumb %}Ventas{% endblock %}{% block content
+%}
+<div class="page-header">
+  <h2>Historial de ventas</h2>
+  <a href="{{url_for('pos')}}" class="btn btn-primary">+ Nueva venta</a>
+</div>
+<div class="panel">
+  <form class="mb-3">
+    <div class="input-group">
+      <input
+        name="q"
+        class="form-control"
+        placeholder="Buscar por número de ticket"
+        value="{{request.args.get('q','')}}"
+      /><button class="btn btn-outline-primary">Buscar</button>
+    </div>
+  </form>
+  <div class="table-responsive">
+    <table class="table table-hover">
+      <thead>
+        <tr>
+          <th>Ticket</th>
+          <th>Fecha</th>
+          <th>Cliente</th>
+          <th>Cajero</th>
+          <th>Método</th>
+          <th>Total</th>
+          <th>Estado</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in data %}
+        <tr>
+          <td>{{v.numero_ticket}}</td>
+          <td>{{v.fecha_hora|fecha}}</td>
+          <td>{{v.nombre_razon_social}}</td>
+          <td>{{v.cajero}}</td>
+          <td>{{v.metodo_pago}}</td>
+          <td>{{v.total|q}}</td>
+          <td>{{v.estado}}</td>
+          <td>
+            <a
+              class="btn btn-sm btn-outline-primary"
+              href="{{url_for('ticket',vid=v.id_venta)}}"
+              >Ticket</a
+            >
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="8">No se encontraron ventas.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
