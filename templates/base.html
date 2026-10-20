@@ -23,10 +23,21 @@
           ></a
         >
         <nav>
-          {% set nav=[('dashboard','⌂','Inicio'),('pos','▣','Punto de
-          Venta'),('productos','▤','Productos'),('inventario','▥','Inventario'),('gestion','◫','Categorías'),('gestion','♙','Clientes'),('gestion','◉','Proveedores'),('compras','▧','Compras'),('ventas','▤','Ventas'),('caja','▣','Caja'),('reportes','▥','Reportes'),('usuarios','♙','Usuarios'),('configuracion','⚙','Configuración')]
-          %} {% for endpoint,icon,titulo in nav %}{% if titulo!='Usuarios' or
-          current_user.rol=='Administrador' %}{% set
+          {% set nav=[
+            ('dashboard','⌂','Inicio','configuracion.gestionar'),
+            ('pos','▣','Punto de Venta','ventas.registrar'),
+            ('productos','▤','Productos','productos.ver'),
+            ('inventario','▥','Inventario','inventario.ver'),
+            ('gestion','◫','Categorías','productos.gestionar'),
+            ('gestion','♙','Clientes','clientes.ver'),
+            ('gestion','◉','Proveedores','proveedores.ver'),
+            ('compras','▧','Compras','proveedores.gestionar'),
+            ('ventas','▤','Ventas','ventas.ver'),
+            ('caja','▣','Caja','ventas.registrar'),
+            ('reportes','▥','Reportes','reportes.ventas'),
+            ('usuarios','♙','Usuarios','usuarios.gestionar'),
+            ('configuracion','⚙','Configuración','configuracion.gestionar')]
+          %} {% for endpoint,icon,titulo,permiso in nav %}{% if puede(permiso) %}{% set
           href=url_for(endpoint,modulo='categorias' if titulo=='Categorías' else
           'clientes' if titulo=='Clientes' else 'proveedores') if
           endpoint=='gestion' else url_for(endpoint) %}<a
@@ -50,6 +61,7 @@
             >
           </div>
           <div class="d-flex align-items-center gap-3">
+            {% if puede('inventario.ver') %}
             <button
                 class="btn btn-light position-relative"
                 type="button"
@@ -78,7 +90,7 @@
                     </h6>
                 </li>
 
-                {% for producto in productos_alerta %}
+                {% for producto in alertas %}
 
                 <li>
                     <div class="dropdown-item-text">
@@ -118,12 +130,13 @@
 
                 <li>
                     <a class="dropdown-item text-primary text-center"
-                    href="{{ url_for('productos') }}">
+                    href="{{ url_for('inventario') }}">
                         Ver inventario
                     </a>
                 </li>
 
             </ul>
+            {% endif %}
 
             <span class="text-muted small d-none d-md-inline"
               >{{clock_today}}</span

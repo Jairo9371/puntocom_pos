@@ -1,8 +1,13 @@
 {% extends 'base.html' %}{% block crumb %}Ventas{% endblock %}{% block content
 %}
 <div class="page-header">
-  <h2>Historial de ventas</h2>
+  <div>
+    <h2>Historial de ventas</h2>
+    {% if not puede('ventas.todas') %}<p>Se muestran únicamente las ventas realizadas por tu usuario.</p>{% endif %}
+  </div>
+  {% if puede('ventas.registrar') %}
   <a href="{{url_for('pos')}}" class="btn btn-primary">+ Nueva venta</a>
+  {% endif %}
 </div>
 <div class="panel">
   <form class="mb-3">
@@ -45,6 +50,14 @@
               href="{{url_for('ticket',vid=v.id_venta)}}"
               >Ticket</a
             >
+            {% if puede('ventas.anular') and v.estado == 'COMPLETADA' %}
+            <form method="post" action="{{ url_for('venta_anular', vid=v.id_venta) }}" class="d-flex gap-2 mt-2"
+                  onsubmit="return confirm('¿Anular esta venta? Se conservará su historial y se devolverán las unidades al inventario.');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="text" name="motivo" class="form-control form-control-sm" placeholder="Motivo de anulación" aria-label="Motivo de anulación de {{ v.numero_ticket }}" maxlength="255" required>
+              <button type="submit" class="btn btn-sm btn-outline-danger">Anular</button>
+            </form>
+            {% endif %}
           </td>
         </tr>
         {% else %}

@@ -87,10 +87,9 @@
           class="form-label"
           >Método de pago</label
         ><select name="metodo_pago" class="form-select">
-          <option>EFECTIVO</option>
-          <option>TARJETA</option>
-          <option>TRANSFERENCIA</option>
-          <option>CRÉDITO</option>
+          {% for metodo in metodos_pago %}
+          <option value="{{ metodo }}">{{ metodo }}</option>
+          {% endfor %}
         </select>
       </div>
       <div class="modal-footer">

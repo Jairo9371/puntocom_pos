@@ -3,10 +3,12 @@
 {% block content %}
 <div class="page-header">
   <h2>{{ config.titulo }}</h2>
+  {% if puede(config.permiso_crear) %}
   <button type="button" class="btn btn-primary" data-bs-toggle="modal"
           data-bs-target="#formModal" onclick="limpiar()">
     + Nuevo registro
   </button>
+  {% endif %}
 </div>
 
 <div class="panel table-responsive">
@@ -21,7 +23,8 @@
             {% else %}{{ campo.replace('_', ' ').capitalize() }}{% endif %}
           </th>
         {% endfor %}
-        <th>Acción</th>
+        <th>Estado</th>
+        {% if puede(config.permiso_editar) %}<th>Acciones</th>{% endif %}
       </tr>
     </thead>
     <tbody>
@@ -31,19 +34,46 @@
           <td>{{ r[campo] if r[campo] is not none else '—' }}</td>
         {% endfor %}
         <td>
+          <span class="badge {{ 'bg-success' if r.estado else 'bg-secondary' }}">
+            {{ 'Activo' if r.estado else 'Inactivo' }}
+          </span>
+        </td>
+        {% if puede(config.permiso_editar) %}<td>
+          <div class="d-flex flex-wrap gap-2">
           <button type="button" class="btn btn-sm btn-outline-primary"
                   data-bs-toggle="modal" data-bs-target="#formModal"
                   data-registro='{{ r | tojson | forceescape }}'
                   onclick="editarRegistro(this)">Editar</button>
-        </td>
+          <form method="post" action="{{ url_for('gestion_estado', modulo=modulo, rid=r[config.pk]) }}"
+                {% if r.estado %}onsubmit="return confirm('¿Deseas desactivar este registro? Dejará de estar disponible para nuevas operaciones.');"{% endif %}>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="estado" value="{{ 'desactivar' if r.estado else 'activar' }}">
+            <span {% if r.protegido %}title="{{ r.motivo_proteccion }}"{% endif %}>
+              <button type="submit" class="btn btn-sm btn-outline-secondary"
+                      {% if r.protegido %}disabled{% endif %}>
+                {{ 'Desactivar' if r.estado else 'Reactivar' }}
+              </button>
+            </span>
+          </form>
+          <form method="post" action="{{ url_for('gestion_eliminar', modulo=modulo, rid=r[config.pk]) }}"
+                onsubmit="return confirm('¿Deseas eliminar definitivamente este registro? Esta acción no se puede deshacer.');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <span {% if not r.puede_eliminar %}title="{{ r.motivo_eliminacion }}"{% endif %}>
+              <button type="submit" class="btn btn-sm btn-outline-danger"
+                      {% if not r.puede_eliminar %}disabled{% endif %}>Eliminar</button>
+            </span>
+          </form>
+          </div>
+        </td>{% endif %}
       </tr>
       {% else %}
-      <tr><td colspan="{{ config.campos|length + 1 }}">No hay registros.</td></tr>
+      <tr><td colspan="{{ config.campos|length + 1 + (1 if puede(config.permiso_editar) else 0) }}">No hay registros.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
 
+{% if puede(config.permiso_crear) or puede(config.permiso_editar) %}
 <div class="modal fade" id="formModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
     <form method="post" class="modal-content" id="gestion-form" data-pk="{{ config.pk }}">
@@ -111,12 +141,13 @@
     </form>
   </div>
 </div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
 <script>
   const reLetras = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+(?: [A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+)*$/;
-  document.getElementById('gestion-form').addEventListener('submit', function(event) {
+  document.getElementById('gestion-form')?.addEventListener('submit', function(event) {
     const campo = document.getElementById('field-descripcion');
     if (campo && campo.value.trim() && !reLetras.test(campo.value.trim())) {
       event.preventDefault();

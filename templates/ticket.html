@@ -7,7 +7,7 @@ content %}
   <button class="btn btn-primary" onclick="window.print()">
     Imprimir / Guardar PDF
   </button>
-  <a class="btn btn-success" href="{{url_for('pos')}}">Nueva venta</a>
+  {% if puede('ventas.registrar') %}<a class="btn btn-success" href="{{url_for('pos')}}">Nueva venta</a>{% endif %}
 </div>
 <div class="ticket">
   <h3>PUNTO COM</h3>
@@ -17,6 +17,7 @@ content %}
     >
   </p>
   <hr />
+  {% if venta.estado == 'ANULADA' %}<p class="text-center fw-bold">VENTA ANULADA</p>{% endif %}
   <p>
     <b>{{venta.numero_ticket}}</b><br />{{venta.fecha_hora|fecha}}<br />Cajero:
     {{venta.cajero}}<br />Cliente: {{venta.nombre_razon_social}}<br />NIT/DPI:

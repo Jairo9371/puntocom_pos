@@ -28,23 +28,54 @@
         <td>{{u.id_usuario}}</td>
         <td>{{u.nombre}}</td>
         <td>{{u.correo}}</td>
-        <td>{{u.rol}}</td>
-        <td>{{'Activo' if u.estado else 'Inactivo'}}</td>
         <td>
+          <form method="post" action="{{ url_for('usuario_rol', uid=u.id_usuario) }}" class="d-flex gap-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <select name="id_rol" class="form-select form-select-sm" aria-label="Rol de {{ u.nombre }}">
+              {% for r in roles %}
+              <option value="{{ r.id_rol }}" {% if r.nombre == u.rol %}selected{% endif %}>{{ r.nombre }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-sm btn-outline-primary">Cambiar rol</button>
+          </form>
+        </td>
+        <td>
+          <span class="badge {{ 'bg-success' if u.estado else 'bg-secondary' }}">
+            {{ 'Activo' if u.estado else 'Inactivo' }}
+          </span>
+        </td>
+        <td>
+          <div class="d-flex flex-wrap gap-2">
           <form
             method="post"
             action="{{url_for('usuario_estado',uid=u.id_usuario)}}"
+            {% if u.estado %}onsubmit="return confirm('¿Deseas desactivar este usuario? Ya no podrá iniciar sesión.');"{% endif %}
           >
-            <input
-              type="hidden"
-              name="csrf_token"
-              value="{{csrf_token()}}"
-            /><button class="btn btn-sm btn-outline-secondary">
-              {{'Desactivar' if u.estado else 'Activar'}}
-            </button>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="estado" value="{{ 'desactivar' if u.estado else 'activar' }}">
+            {% set cuenta_propia = u.id_usuario|string == current_user.id|string %}
+            <span {% if cuenta_propia %}title="No puedes desactivar tu propia cuenta."
+                  {% elif u.estado and not u.puede_desactivar %}title="{{ u.motivo_desactivacion }}"{% endif %}>
+              <button type="submit" class="btn btn-sm btn-outline-secondary"
+                      {% if cuenta_propia or (u.estado and not u.puede_desactivar) %}disabled{% endif %}>
+                {{ 'Desactivar' if u.estado else 'Reactivar' }}
+              </button>
+            </span>
           </form>
+          <form method="post" action="{{ url_for('usuario_eliminar', uid=u.id_usuario) }}"
+                onsubmit="return confirm('¿Deseas eliminar definitivamente este usuario? Esta acción no se puede deshacer.');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <span {% if cuenta_propia %}title="No puedes eliminar tu propia cuenta."
+                  {% elif not u.puede_eliminar %}title="{{ u.motivo_eliminacion }}"{% endif %}>
+              <button type="submit" class="btn btn-sm btn-outline-danger"
+                      {% if cuenta_propia or not u.puede_eliminar %}disabled{% endif %}>Eliminar</button>
+            </span>
+          </form>
+          </div>
         </td>
       </tr>
+      {% else %}
+      <tr><td colspan="6">No hay usuarios.</td></tr>
       {% endfor %}
     </tbody>
   </table>

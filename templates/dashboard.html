@@ -7,26 +7,28 @@
     <h2>Panel principal</h2>
     <p>Resumen de operaciones de la librería</p>
   </div>
-  <a href="{{ url_for('pos') }}" class="btn btn-primary">+ Nueva venta</a>
+  {% if puede('ventas.registrar') %}<a href="{{ url_for('pos') }}" class="btn btn-primary">+ Nueva venta</a>{% endif %}
 </div>
 
 <div class="stats">
-  {% for label, valor in [
-    ('Ventas de hoy', stats.ventas|q),
-    ('Número de ventas', stats.nventas),
-    ('Productos registrados', stats.productos),
-    ('Stock bajo o agotado', stats.bajos),
-    ('Clientes', stats.clientes),
-    ('Ganancia bruta estimada', stats.ganancia|q)
-  ] %}
-    <div class="stat">
-      <small>{{ label }}</small>
-      <strong>{{ valor }}</strong>
-    </div>
-  {% endfor %}
+  {% if puede('ventas.ver') %}
+  <div class="stat"><small>Ventas de hoy</small><strong>{{ stats.ventas|q }}</strong></div>
+  <div class="stat"><small>Número de ventas</small><strong>{{ stats.nventas }}</strong></div>
+  {% endif %}
+  <div class="stat"><small>Productos registrados</small><strong>{{ stats.productos }}</strong></div>
+  {% if puede('inventario.ver') %}
+  <div class="stat"><small>Stock bajo o agotado</small><strong>{{ stats.bajos }}</strong></div>
+  {% endif %}
+  {% if puede('clientes.ver') %}
+  <div class="stat"><small>Clientes</small><strong>{{ stats.clientes }}</strong></div>
+  {% endif %}
+  {% if puede('costos.ver') %}
+  <div class="stat"><small>Ganancia bruta estimada</small><strong>{{ stats.ganancia|q }}</strong></div>
+  {% endif %}
 </div>
 
 <div class="row g-4 mt-1">
+  {% if puede('ventas.ver') %}
   <div class="col-lg-7">
     <div class="panel">
       <h5>Ventas de los últimos 7 días</h5>
@@ -96,6 +98,7 @@
       </div>
     </div>
   </div>
+  {% endif %}
 </div>
 {% endblock %}
 

@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% block crumb %}Conteos y ajustes de inventario{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div><h2>Conteos y ajustes</h2><p>Las solicitudes pendientes no modifican las existencias.</p></div>
+  <a class="btn btn-outline-primary" href="{{url_for('inventario_api.inventario')}}">Volver a inventario</a>
+</div>
+<div class="panel">
+  <p class="text-muted small">Si las existencias cambiaron después del conteo, rechaza la solicitud y registra un nuevo conteo. Se muestran las últimas 200 solicitudes.</p>
+  <div class="table-responsive"><table class="table align-middle">
+    <thead><tr><th>Solicitud</th><th>Producto</th><th>Existencia al contar</th><th>Cantidad contada</th><th>Diferencia</th>
+      <th>Motivo</th><th>Estado</th><th>Resolución</th>{% if puede('inventario.aprobar') %}<th>Acciones</th>{% endif %}</tr></thead>
+    <tbody>{% for s in solicitudes %}<tr>
+      <td>#{{s.id_solicitud}}<br>{{s.fecha_solicitud|fecha}}<br><small>{{s.solicitante}}</small></td>
+      <td>{{s.codigo}} - {{s.nombre}}</td><td>{{s.existencia_sistema}}</td><td>{{s.cantidad_contada}}</td>
+      <td>{{'%+d'|format(s.diferencia)}}</td><td>{{s.motivo}}</td>
+      <td><span class="badge {{'text-bg-warning' if s.estado=='PENDIENTE' else 'text-bg-success' if s.estado=='APROBADA' else 'text-bg-secondary'}}">{{s.estado}}</span></td>
+      <td>{% if s.aprobador %}{{s.aprobador}}<br>{{s.fecha_resolucion|fecha}}{% if s.motivo_resolucion %}<br>{{s.motivo_resolucion}}{% endif %}{% else %}Pendiente{% endif %}</td>
+      {% if puede('inventario.aprobar') %}<td>{% if s.estado=='PENDIENTE' %}
+        <form method="post" action="{{url_for('inventario_api.aprobar',aid=s.id_solicitud)}}" class="mb-2"
+          onsubmit="return confirm('¿Aprobar este conteo y aplicar su diferencia de existencias?')">
+          <input type="hidden" name="csrf_token" value="{{csrf_token()}}"><button class="btn btn-sm btn-success">Aprobar</button>
+        </form>
+        <form method="post" action="{{url_for('inventario_api.rechazar',aid=s.id_solicitud)}}">
+          <input type="hidden" name="csrf_token" value="{{csrf_token()}}">
+          <input class="form-control form-control-sm mb-1" name="motivo" aria-label="Motivo del rechazo" placeholder="Motivo del rechazo (opcional)"
+            pattern="[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+( [A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+)*" title="Solo letras y espacios">
+          <button class="btn btn-sm btn-outline-danger">Rechazar</button>
+        </form>
+      {% else %}Resuelta{% endif %}</td>{% endif %}
+    </tr>{% else %}<tr><td colspan="9">No hay solicitudes de ajuste.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+{% endblock %}

@@ -113,7 +113,7 @@
   </div>
   <div class="col-12">
     <div class="panel">
-      <h5>Últimos turnos</h5>
+      <h5>{{ 'Últimos turnos' if puede('ventas.todas') else 'Mis últimos turnos' }}</h5>
       <div class="table-responsive">
         <table class="table">
           <thead>

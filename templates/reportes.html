@@ -3,29 +3,34 @@
 
 {% block content %}
 <div class="page-header">
-    <h2>Reportes de ventas</h2>
+    <div>
+        <h2>Reportes de ventas</h2>
+        {% if not puede('ventas.todas') %}<p>El reporte y el archivo Excel incluyen solo tus propias ventas.</p>{% endif %}
+    </div>
 </div>
 
 <div class="card shadow-sm mb-4">
     <div class="card-body">
         <h5>Filtrar ventas por fecha</h5>
         <form method="GET"
-              action="{{ url_for('exportar_ventas_excel') }}"
+              action="{{ url_for('reportes') }}"
               class="row g-3 align-items-end">
             <div class="col-md-4">
                 <label for="inicio" class="form-label">Fecha inicial</label>
                 <input type="date" id="inicio" name="inicio" class="form-control"
-                       value="{{ request.args.get('inicio', '') }}" required>
+                       value="{{ desde }}" required>
             </div>
             <div class="col-md-4">
                 <label for="fin" class="form-label">Fecha final</label>
                 <input type="date" id="fin" name="fin" class="form-control"
-                       value="{{ request.args.get('fin', '') }}" required>
+                       value="{{ hasta }}" required>
             </div>
             <div class="col-md-4 d-flex flex-wrap gap-2">
+                <button type="submit" class="btn btn-primary">Aplicar filtro</button>
                 <button type="button" onclick="window.print()"
                         class="btn btn-outline-primary">Imprimir</button>
-                <button type="submit" class="btn btn-success flex-grow-1">
+                <button type="submit" formaction="{{ url_for('reporte_excel') }}"
+                        class="btn btn-success flex-grow-1">
                     Descargar Excel
                 </button>
             </div>

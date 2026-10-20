@@ -6,7 +6,9 @@
     <h2>Productos</h2>
     <p>Catálogo de productos, precios y existencias</p>
   </div>
+  {% if puede('productos.gestionar') %}
   <a class="btn btn-primary" href="{{ url_for('producto_form') }}">+ Nuevo producto</a>
+  {% endif %}
 </div>
 
 <div class="panel">
@@ -34,8 +36,8 @@
     <table class="table table-hover align-middle">
       <thead>
         <tr>
-          <th>Código</th><th>Producto</th><th>Categoría</th><th>Costo</th>
-          <th>Precio</th><th>Stock</th><th>Estado stock</th><th>Estado producto</th><th>Acciones</th>
+          <th>Código</th><th>Producto</th><th>Categoría</th>{% if puede('costos.ver') %}<th>Costo</th>{% endif %}
+          <th>Precio</th><th>Stock</th><th>Estado stock</th><th>Estado producto</th>{% if puede('productos.gestionar') %}<th>Acciones</th>{% endif %}
         </tr>
       </thead>
       <tbody>
@@ -44,7 +46,7 @@
           <td><b>{{ p.codigo }}</b><small class="d-block text-muted">{{ p.codigo_barras or '' }}</small></td>
           <td>{{ p.nombre }}<small class="d-block text-muted">{{ p.marca or '' }}</small></td>
           <td>{{ p.categoria }}</td>
-          <td>{{ p.costo|q }}</td>
+          {% if puede('costos.ver') %}<td>{{ p.costo|q }}</td>{% endif %}
           <td>{{ p.precio_venta|q }}</td>
           <td>{{ p.existencia_actual }}</td>
           <td>
@@ -69,18 +71,26 @@
                 {% endif %}
             </td>
 
-          <td>
+          {% if puede('productos.gestionar') %}<td>
             <a class="btn btn-sm btn-outline-primary" href="{{ url_for('producto_form', pid=p.id_producto) }}">Editar</a>
             <form class="d-inline" action="{{ url_for('producto_estado', pid=p.id_producto) }}" method="post">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="estado" value="{{ 'desactivar' if p.estado else 'activar' }}">
               <button type="submit" class="btn btn-sm btn-outline-secondary">
                 {{ 'Desactivar' if p.estado else 'Activar' }}
               </button>
             </form>
-          </td>
+            <form class="d-inline" action="{{ url_for('producto_eliminar', pid=p.id_producto) }}" method="post"
+                  onsubmit="return confirm('¿Deseas eliminar definitivamente este producto?');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <span {% if not p.puede_eliminar %}title="{{ p.motivo_eliminacion }}"{% endif %}>
+                <button type="submit" class="btn btn-sm btn-outline-danger" {% if not p.puede_eliminar %}disabled{% endif %}>Eliminar</button>
+              </span>
+            </form>
+          </td>{% endif %}
         </tr>
         {% else %}
-        <tr><td colspan="8" class="text-center text-muted py-4">No hay productos que coincidan con la búsqueda.</td></tr>
+        <tr><td colspan="{{ 7 + (1 if puede('costos.ver') else 0) + (1 if puede('productos.gestionar') else 0) }}" class="text-center text-muted py-4">No hay productos que coincidan con la búsqueda.</td></tr>
         {% endfor %}
       </tbody>
     </table>

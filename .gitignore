@@ -1,4 +1,6 @@
 .env
+.env.*
+.env.example
 venv/
 .venv/
 __pycache__/
@@ -7,5 +9,5 @@ __pycache__/
 *.log
 *.backup
 *.dump
-!.env.example
-.env.*
+/documentacion/
+/Microsoft/

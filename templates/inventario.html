@@ -1,115 +1,84 @@
-{% extends 'base.html' %}{% block crumb %}Inventario{% endblock %}{% block
-content %}
+{% extends 'base.html' %}
+{% block crumb %}Inventario{% endblock %}
+{% block content %}
 <div class="page-header">
-  <div>
-    <h2>Inventario</h2>
-    <p>Existencias y movimientos de almacén</p>
+  <div><h2>Inventario</h2><p>Existencias y movimientos de almacén</p></div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-primary" href="{{url_for('inventario_api.ajustes')}}">Conteos y ajustes</a>
+    <a class="btn btn-outline-success" href="{{url_for('inventario_api.excel')}}">Exportar inventario</a>
   </div>
 </div>
 <div class="row g-4">
-  <div class="col-lg-8">
-    <div class="panel">
-      <h5>Existencias actuales</h5>
-      <div class="table-responsive">
-        <table class="table table-hover">
-          <thead>
-            <tr>
-              <th>Código</th>
-              <th>Producto</th>
-              <th>Existencia</th>
-              <th>Mínimo</th>
-              <th>Estado</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for p in data %}
-            <tr>
-              <td>{{p.codigo}}</td>
-              <td>{{p.nombre}}</td>
-              <td>{{p.existencia_actual}}</td>
-              <td>{{p.stock_minimo}}</td>
-              <td>
-                {% if p.existencia_actual==0 %}<span
-                  class="badge text-bg-danger"
-                  >Agotado</span
-                >{% elif p.existencia_actual<=p.stock_minimo %}<span
-                  class="badge text-bg-warning"
-                  >Stock bajo</span
-                >{% else %}<span class="badge text-bg-success">Disponible</span
-                >{% endif %}
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
+  <div class="col-lg-8"><div class="panel">
+    <h5>Existencias actuales</h5>
+    <div class="table-responsive"><table class="table table-hover">
+      <thead><tr><th>Código</th><th>Producto</th><th>Precio de venta</th>
+        {% if puede('costos.ver') %}<th>Costo</th>{% endif %}
+        <th>Existencia</th><th>Mínimo</th><th>Estado</th></tr></thead>
+      <tbody>{% for p in data %}<tr>
+        <td>{{p.codigo}}</td><td>{{p.nombre}}</td><td>{{p.precio_venta|q}}</td>
+        {% if puede('costos.ver') %}<td>{{p.costo|q}}</td>{% endif %}
+        <td>{{p.existencia_actual}}</td><td>{{p.stock_minimo}}</td>
+        <td>{% if not p.estado %}<span class="badge text-bg-secondary">Inactivo</span>
+          {% elif p.existencia_actual==0 %}<span class="badge text-bg-danger">Agotado</span>
+          {% elif p.existencia_actual<=p.stock_minimo %}<span class="badge text-bg-warning">Stock bajo</span>
+          {% else %}<span class="badge text-bg-success">Disponible</span>{% endif %}</td>
+      </tr>{% else %}<tr><td colspan="8">No hay productos registrados.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </div></div>
   <div class="col-lg-4">
-    <div class="panel">
+    {% if puede('inventario.mover') %}
+    <div class="panel mb-4">
       <h5>Registrar movimiento</h5>
-      <form method="post" action="{{url_for('inventario_movimiento')}}">
-        <input type="hidden" name="csrf_token" value="{{csrf_token()}}" /><label
-          class="form-label"
-          >Producto</label
-        ><select class="form-select mb-3" name="id_producto" required>
-          {% for p in data %}
-          <option value="{{p.id_producto}}">{{p.codigo}} - {{p.nombre}}</option>
-          {% endfor %}</select
-        ><label class="form-label">Tipo</label
-        ><select class="form-select mb-3" name="tipo">
-          <option value="ENTRADA">Entrada</option>
-          <option value="SALIDA">Salida</option></select
-        ><label class="form-label">Cantidad</label
-        ><input
-          type="number"
-          min="1"
-          name="cantidad"
-          required
-          class="form-control mb-3"
-        /><label class="form-label">Motivo</label
-        ><textarea class="form-control mb-3" name="motivo" pattern="[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+( [A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+)*"
-                  oninput="this.value = this.value.replace(/[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ ]/g, '')"
-                    title="Solo letras y espacios" required></textarea
-        ><button class="btn btn-primary w-100">Guardar movimiento</button>
+      <form method="post" action="{{url_for('inventario_api.inventario_movimiento')}}">
+        <input type="hidden" name="csrf_token" value="{{csrf_token()}}">
+        <label class="form-label" for="mov-producto">Producto</label>
+        <select class="form-select mb-3" id="mov-producto" name="id_producto" required>
+          {% for p in data if p.estado %}<option value="{{p.id_producto}}">{{p.codigo}} - {{p.nombre}}</option>{% endfor %}
+        </select>
+        <label class="form-label" for="mov-tipo">Tipo</label>
+        <select class="form-select mb-3" id="mov-tipo" name="tipo"><option value="ENTRADA">Entrada</option><option value="SALIDA">Salida</option></select>
+        <label class="form-label" for="mov-cantidad">Cantidad</label>
+        <input class="form-control mb-3" id="mov-cantidad" type="number" min="1" max="2147483647" step="1" name="cantidad" required>
+        <label class="form-label" for="mov-motivo">Motivo</label>
+        <textarea class="form-control mb-3" id="mov-motivo" name="motivo" required
+          oninput="this.value = this.value.replace(/[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ ]/g, '')" title="Solo letras y espacios"></textarea>
+        <button class="btn btn-primary w-100">Guardar movimiento</button>
       </form>
-    </div>
-  </div>
-  <div class="col-12">
+    </div>{% endif %}
+    {% if puede('inventario.contar') %}
     <div class="panel">
-      <h5>Historial de movimientos</h5>
-      <div class="table-responsive">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Fecha</th>
-              <th>Código</th>
-              <th>Producto</th>
-              <th>Tipo</th>
-              <th>Cantidad</th>
-              <th>Motivo</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for m in movimientos %}
-            <tr>
-              <td>{{m.fecha_hora|fecha}}</td>
-              <td>{{m.codigo}}</td>
-              <td>{{m.nombre}}</td>
-              <td>
-                <span
-                  class="badge {{'text-bg-success' if m.tipo=='ENTRADA' else 'text-bg-danger'}}"
-                  >{{m.tipo}}</span
-                >
-              </td>
-              <td>{{m.cantidad}}</td>
-              <td>{{m.motivo}}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
+      <h5>Registrar conteo físico</h5>
+      <p class="text-muted small">El conteo genera una solicitud. Las existencias se actualizan cuando un administrador aprueba el ajuste.</p>
+      <form method="post" action="{{url_for('inventario_api.conteo')}}">
+        <input type="hidden" name="csrf_token" value="{{csrf_token()}}">
+        <label class="form-label" for="conteo-producto">Producto</label>
+        <select class="form-select mb-3" id="conteo-producto" name="id_producto" required>
+          {% for p in data if p.estado %}<option value="{{p.id_producto}}">{{p.codigo}} - {{p.nombre}}</option>{% endfor %}
+        </select>
+        <label class="form-label" for="conteo-cantidad">Cantidad contada</label>
+        <input class="form-control mb-3" id="conteo-cantidad" name="cantidad_contada" type="number" min="0" max="2147483647" step="1" required>
+        <label class="form-label" for="conteo-motivo">Motivo</label>
+        <textarea class="form-control mb-3" id="conteo-motivo" name="motivo" required
+          oninput="this.value = this.value.replace(/[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ ]/g, '')" title="Solo letras y espacios"></textarea>
+        <button class="btn btn-outline-primary w-100">Solicitar aprobación</button>
+      </form>
+    </div>{% endif %}
   </div>
+  <div class="col-12"><div class="panel">
+    <h5>Historial de movimientos</h5>
+    <p class="text-muted small">Últimos 80 movimientos. Los registros anteriores conservan su historial.</p>
+    <div class="table-responsive"><table class="table">
+      <thead><tr><th>Fecha</th><th>Código</th><th>Producto</th><th>Tipo</th><th>Cantidad</th>
+        {% if puede('costos.ver') %}<th>Costo unitario</th>{% endif %}
+        <th>Motivo</th><th>Responsable</th></tr></thead>
+      <tbody>{% for m in movimientos %}<tr>
+        <td>{{m.fecha_hora|fecha}}</td><td>{{m.codigo}}</td><td>{{m.nombre}}</td>
+        <td><span class="badge {{'text-bg-success' if m.tipo=='ENTRADA' else 'text-bg-danger'}}">{{m.tipo}}</span></td>
+        <td>{{m.cantidad}}</td>{% if puede('costos.ver') %}<td>{{m.costo_unitario|q}}</td>{% endif %}
+        <td>{{m.motivo}}</td><td>{{m.responsable or 'Registro anterior'}}</td>
+      </tr>{% else %}<tr><td colspan="8">No hay movimientos registrados.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </div></div>
 </div>
 {% endblock %}

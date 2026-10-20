@@ -42,7 +42,7 @@ content %}
               <th>Producto</th>
               <th>Cant.</th>
               <th>Precio</th>
-              <th>Desc. Q</th>
+              {% if puede('descuentos.modificar') %}<th>Desc. Q</th>{% endif %}
               <th>Subtotal</th>
               <th></th>
             </tr>
@@ -136,6 +136,7 @@ content %}
   const configuracionPOS = document.getElementById('pos-config').dataset;
   const csrfToken = configuracionPOS.csrfToken;
   const cobrarURL = configuracionPOS.cobrarUrl;
+  const puedeDescontar = {{ puede('descuentos.modificar') | tojson }};
   let items = {};
   let modal;
 
@@ -191,7 +192,7 @@ content %}
     if (prop === 'cantidad') {
       i.cantidad = Math.max(1, Math.min(Number(p.existencia_actual), Math.floor(n)));
       i.descuento = Math.min(i.descuento, dec(Number(p.precio_venta) * i.cantidad));
-    } else {
+    } else if (prop === 'descuento' && puedeDescontar) {
       i.descuento = Math.max(0, Math.min(Number(p.precio_venta) * i.cantidad, dec(n)));
     }
     dibujar();
@@ -228,14 +229,14 @@ content %}
           min="1" max="${Number(p.existencia_actual)}" value="${i.cantidad}"
           onchange="cambiar(${Number(i.id)}, 'cantidad', this.value)"></td>
         <td>${q(p.precio_venta)}</td>
-        <td><input class="form-control form-control-sm qty" type="number"
+        {% if puede('descuentos.modificar') %}<td><input class="form-control form-control-sm qty" type="number"
           min="0" step=".01" value="${i.descuento}"
-          onchange="cambiar(${Number(i.id)}, 'descuento', this.value)"></td>
+          onchange="cambiar(${Number(i.id)}, 'descuento', this.value)"></td>{% endif %}
         <td>${q(Number(p.precio_venta) * i.cantidad - i.descuento)}</td>
         <td><button class="btn btn-sm btn-outline-danger"
           onclick="borrar(${Number(i.id)})">×</button></td>
       </tr>`;
-    }).join('') || '<tr><td colspan="6" class="text-center text-muted py-4">Agrega productos al carrito</td></tr>';
+    }).join('') || '<tr><td colspan="{{ 6 if puede("descuentos.modificar") else 5 }}" class="text-center text-muted py-4">Agrega productos al carrito</td></tr>';
     const r = resumen();
     document.getElementById('subtotal').textContent = q(r.bruto);
     document.getElementById('descuentos').textContent = q(r.desc);
@@ -267,7 +268,7 @@ content %}
     const btn = document.getElementById('confirmar');
     btn.disabled = true;
     const payload = {
-      items: Object.values(items),
+      items: Object.values(items).map(i => ({ ...i, descuento: puedeDescontar ? i.descuento : 0 })),
       cliente_id: document.getElementById('cliente').value,
       metodo: document.getElementById('metodo').value,
       recibido: document.getElementById('recibido').value
