@@ -6,6 +6,7 @@ protecciones que utiliza el navegador.
 """
 
 import re
+from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from html import unescape
@@ -92,7 +93,7 @@ class AutorizacionPostgres(CasoPostgres):
     def _cobrar(self, *, cliente=None, **cambios):
         cliente = cliente or self.client
         return cliente.post('/pos/cobrar', json=self._payload(**cambios),
-                            headers={'X-CSRFToken': self._csrf(cliente)})
+                            headers={'X-CSRFToken': self._csrf(cliente), 'Idempotency-Key': uuid4().hex})
 
     def _venta(self, cajero='cajero1', *, producto=1, cantidad=1, cliente_id=1):
         self._login(cajero)

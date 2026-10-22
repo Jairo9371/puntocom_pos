@@ -48,3 +48,30 @@ def aplicar_migracion_roles(engine):
         except Exception:
             conexion.rollback()
             raise
+
+
+def _aplicar_script(engine, nombre):
+    """Cada archivo controla su transacción; solo lo ejecuta un comando explícito."""
+    script = Path(__file__).with_name('sql').joinpath(nombre).read_text(encoding='utf-8')
+    with engine.connect() as conexion:
+        try:
+            conexion.exec_driver_sql(script)
+            conexion.commit()
+        except Exception:
+            conexion.rollback()
+            raise
+
+
+def aplicar_migracion_pagos(engine):
+    _aplicar_script(engine, '05_ventas_pagos.sql')
+
+
+def aplicar_migracion_caja_compras(engine):
+    _aplicar_script(engine, '06_caja_compras.sql')
+
+
+def aplicar_migraciones_operacion(engine):
+    """Actualiza una instalación existente sin recrear su esquema ni sus datos."""
+    aplicar_migracion_roles(engine)
+    aplicar_migracion_pagos(engine)
+    aplicar_migracion_caja_compras(engine)

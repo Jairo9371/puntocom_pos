@@ -14,6 +14,7 @@ from decimal import Decimal
 from html import unescape
 from io import BytesIO
 from pathlib import Path
+from uuid import uuid4
 
 from openpyxl import load_workbook
 from sqlalchemy import text
@@ -93,7 +94,7 @@ class Demostracion:
         return self.clientes[rol].post('/pos/cobrar', json={
             'cliente_id': cliente, 'metodo': metodo, 'recibido': '0',
             'items': [{'id': producto, 'cantidad': cantidad, 'descuento': descuento}],
-        }, headers={'X-CSRFToken': self.token(rol)})
+        }, headers={'X-CSRFToken': self.token(rol), 'Idempotency-Key': uuid4().hex})
 
     def denegado(self, nombre, respuesta):
         contenido = str(respuesta.get_json()) if respuesta.is_json else respuesta.get_data(as_text=True)

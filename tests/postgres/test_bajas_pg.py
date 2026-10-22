@@ -5,6 +5,7 @@ relaciones y bloqueos son los de PostgreSQL: no se sustituyen consultas SQL.
 """
 
 import re
+from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
 from html import unescape
 from threading import Event, current_thread
@@ -120,7 +121,7 @@ class BajasPostgres(CasoPostgres):
         return self.client.post('/pos/cobrar', json={
             'cliente_id': cliente, 'metodo': 'EFECTIVO', 'recibido': '100.00',
             'items': [{'id': self.ids['producto1'], 'cantidad': 1, 'descuento': '0'}],
-        }, headers={'X-CSRFToken': self._csrf('/pos')})
+        }, headers={'X-CSRFToken': self._csrf('/pos'), 'Idempotency-Key': uuid4().hex})
 
     def _comprar(self, proveedor):
         return self.client.post('/compras/nueva', data={
@@ -703,7 +704,7 @@ class BajasPostgres(CasoPostgres):
                     return cajero.post('/pos/cobrar', json={
                         'cliente_id': rid, 'metodo': 'EFECTIVO', 'recibido': '100',
                         'items': [{'id': self.ids['producto1'], 'cantidad': 1, 'descuento': '0'}],
-                    }, headers={'X-CSRFToken': token_cobro})
+                    }, headers={'X-CSRFToken': token_cobro, 'Idempotency-Key': uuid4().hex})
 
                 if desactivar_primero:
                     baja, venta = self._solicitudes_serializadas(

@@ -4,7 +4,7 @@ Aplicación web para una librería en Guatemala, construida con **Python, Flask 
 
 ## Requisitos
 
-- Windows con Python 3.11 o posterior.
+- Python 3.11 o posterior; instrucciones locales para Windows y despliegue Linux con Docker Compose.
 - PostgreSQL 14 o posterior; pgAdmin es opcional para administrar la base.
 - Acceso a Internet para cargar Bootstrap y Chart.js desde CDN.
 
@@ -14,7 +14,7 @@ Abre una terminal PowerShell en la carpeta `puntocom_pos` y crea el entorno virt
 
 ```powershell
 py -m venv venv
-.\venv\Scripts\python.exe -m pip install -r requirements.txt
+.\venv\Scripts\python.exe -m pip install -r requirements.txt -c requirements.lock
 Copy-Item .env.example .env
 ```
 
@@ -28,13 +28,14 @@ Genera una clave de sesión y copia el resultado en `SECRET_KEY` dentro de `.env
 
 Para una instalación **nueva**, crea la base `puntocom_pos` y ejecuta, en este orden, `sql/01_esquema.sql` y `sql/02_datos_iniciales.sql`. En una base existente, revisa primero su estructura y sus datos: estos archivos son de instalación inicial y no constituyen una migración. No vuelvas a ejecutar el esquema sobre la base que ya utilizas.
 
-Después de la instalación inicial, o al actualizar una instalación existente, aplica la migración de accesos antes de arrancar esta versión:
+Después de la instalación inicial, o al actualizar una instalación existente, crea y verifica un respaldo y aplica las migraciones antes de arrancar esta versión:
 
 ```powershell
-.\venv\Scripts\python.exe -m flask --app app migrar-accesos
+.\venv\Scripts\python.exe -m deployment.respaldos --env-file .env backup --directory backups --verify-cleanup
+.\venv\Scripts\python.exe -m flask --app app migrar-operacion
 ```
 
-El comando utiliza la conexión configurada en `.env` y ejecuta `sql/04_roles_inventario.sql` dentro de una transacción. Reutiliza los roles existentes, normaliza las asignaciones a Administrador, Cajero y Bodeguero, agrega estados que falten, responsables de inventario, datos de anulación y solicitudes de ajuste. Puede repetirse sin duplicar roles canónicos ni reactivar registros. Como alternativa al comando, ejecuta ese script SQL en la base correcta; basta uno de los dos métodos. Los movimientos históricos sin responsable permanecen sin atribución: no se inventan usuarios. No se eliminan registros. Los detalles y el tratamiento de roles desconocidos están en la [guía de control de acceso](documentacion/Control_acceso_roles.md).
+`migrar-operacion` utiliza la conexión configurada en `.env` y ejecuta las migraciones aditivas `04_roles_inventario.sql`, `05_ventas_pagos.sql` y `06_caja_compras.sql`, cada una dentro de su transacción. Puede repetirse y conserva registros e historial. `migrar-accesos` se mantiene para ejecutar únicamente la migración 04. La aplicación no migra automáticamente al arrancar. Consulta el [flujo de pagos y operación](docs/operacion.md) y la [guía de despliegue y recuperación](docs/despliegue.md).
 
 En la instalación validada el **18 de octubre de 2026**, la migración 04 se aplicó correctamente a la base configurada y reutilizó los tres identificadores de roles existentes. Los pasos anteriores siguen siendo necesarios para otras instalaciones o bases nuevas.
 
@@ -62,6 +63,9 @@ Abre <http://127.0.0.1:5000/login> e inicia sesión con las credenciales que aca
 | `DB_HOST` | `127.0.0.1` | Servidor PostgreSQL. |
 | `DB_PORT` | `5433` | Puerto PostgreSQL. |
 | `DB_NAME` | `puntocom_pos` | Nombre de la base de datos. |
+| `TRUSTED_HOSTS` | Sin restricción en desarrollo | Obligatorio en producción: hosts separados por comas, sin esquema ni puerto. |
+| `DB_CONNECT_TIMEOUT` | `5` | Límite de conexión PostgreSQL, entre 1 y 120 segundos. |
+| `DB_SSLMODE` | `prefer` | Verificación TLS para la conexión PostgreSQL; usa `verify-full` y CA con servidor remoto. |
 
 La aplicación utiliza `America/Guatemala` para sus fechas y fija esa zona horaria en las conexiones PostgreSQL que administra. Utiliza aislamiento `READ COMMITTED`, necesario para que una operación que espera un bloqueo consulte después las existencias ya confirmadas por la anterior. Estos ajustes se aplican a las conexiones de la aplicación y no modifican la configuración global del servidor PostgreSQL. Los ajustes de producción no sustituyen la configuración de un servidor WSGI, HTTPS, respaldos y controles operativos.
 
@@ -77,13 +81,16 @@ La aplicación utiliza `America/Guatemala` para sus fechas y fija esa zona horar
 
 - Inicio de sesión con contraseñas protegidas con hash, sesiones, CSRF y permisos por rol.
 - Productos, categorías, clientes, proveedores y administración de usuarios.
+- Código interno automático para productos nuevos, por ejemplo `PC-000014`; se asigna al guardar y aparece en el mensaje de confirmación y el listado.
 - Desactivación y reactivación de productos, categorías, clientes, proveedores y usuarios, reservadas al Administrador; eliminación definitiva solo de registros sin historial ni relaciones.
 - Inventario calculado a partir de entradas y salidas, con historial y alertas de existencias bajas.
 - Apertura y cierre de caja, ingresos y egresos de efectivo.
 - POS con búsqueda por código, nombre o barras; cantidades y descuento monetario por renglón únicamente para Administrador.
 - Cobro transaccional con validación de existencias y precios del servidor. Un pago en efectivo registra el ingreso en caja.
 - Ticket imprimible de 80 mm. El navegador puede guardarlo como PDF.
-- Compras de un producto por operación, con entrada de inventario y actualización del costo.
+- Compras de varios productos, con entradas y actualización de costo en una transacción, crédito y abonos con origen explícito del efectivo.
+- Cobros con clave de operación para recuperar reintentos sin ventas duplicadas y pagos pendientes, confirmados o fallidos.
+- Arqueo de caja con esperado, contado, diferencia y motivo, conservado después del cierre.
 - Panel general para Administrador; historial y reportes de ventas propios para Cajero, con exportación Excel y comprobantes protegidos.
 - Conteos físicos pendientes de aprobación administrativa; aprobación única y movimientos con responsable, motivo y fecha.
 - Anulación administrativa de ventas, conservando comprobantes e historial de reversión.
@@ -163,6 +170,8 @@ La eliminación bloquea la fila con `FOR UPDATE` y comprueba las referencias rea
 | `permisos.py` | Matriz central, autorización reutilizable y revalidación transaccional de responsables. |
 | `validaciones.py` | Reglas compartidas de entrada y normalización. |
 | `ventas_servicio.py` | Cobro y anulación con responsable y permisos. |
+| `caja_servicio.py` | Caja con bloqueos, saldo disponible y arqueos persistentes. |
+| `compras_servicio.py` | Compras de varios artículos, pagos y saldo a proveedores. |
 | `inventario_servicio.py` | Movimientos, conteos y aprobación o rechazo de ajustes. |
 | `inventario_rutas.py` | Rutas y exportación de inventario protegidas. |
 | `administracion_servicio.py` | Reglas de estado, eliminación sin cascadas, cambios de rol y protección administrativa. |
@@ -176,10 +185,13 @@ La eliminación bloquea la fila con `FOR UPDATE` y comprueba las referencias rea
 | `documentacion/Logica_del_proyecto_PUNTO_COM.md` | Descripción funcional y técnica actualizada. |
 | `documentacion/Control_acceso_roles.md` | Matriz completa, instalación y pruebas manuales de acceso por perfil. |
 | `.env.example` | Plantilla pública de configuración, sin secretos. |
+| `docs/operacion.md` | Estados de pago, reintentos, migración y flujos de caja/compras. |
+| `docs/despliegue.md` | Servidor Linux, HTTPS, respaldo, recuperación y operación. |
+| `deployment/` | Scripts de respaldo, restauración, instalación y permisos de producción. |
 
 ## Pruebas
 
-Validación del **18 de octubre de 2026**: **90 pruebas aisladas aprobadas** en 2.527 s y **104 pruebas PostgreSQL aprobadas** en 57.043 s, sin errores, fallos ni omisiones. La suite PostgreSQL comprende 35 pruebas de autorización, 4 de migración de roles, 59 casos existentes y 6 del generador de demostración. El contrato de esquema comparado no presentó diferencias y la base temporal se eliminó. Consulta la cobertura y los límites del [informe PostgreSQL](documentacion/Validacion_PostgreSQL.md) y su [resultado de ejecución](documentacion/resultado_postgresql.json).
+La [validación de operación](docs/validacion_operacion.md) registra los resultados de esta versión y el respaldo verificado. Como antecedente, el **18 de octubre de 2026** aprobaron 90 pruebas aisladas y 104 PostgreSQL. Las pruebas nuevas cubren reintentos, estados de pago, arqueos y compras de varios artículos. Las seis pruebas JavaScript del POS requieren Node.js; sin Node se omiten explícitamente. CI prepara Python, Node y PostgreSQL.
 
 Desde la carpeta del proyecto, ejecuta las pruebas aisladas:
 
@@ -211,17 +223,17 @@ Estas pruebas no sustituyen la validación del despliegue, los respaldos ni una 
 
 ## Alcance y límites
 
-Esta es una aplicación de desarrollo. La actualización de accesos y ajustes requiere la migración indicada, que también incorpora estados de catálogos. La aplicación no migra automáticamente al arrancar.
+La versión incluye preparación para despliegue. La instalación requiere `migrar-operacion` antes de iniciar; no migra automáticamente al arrancar. Docker, HTTPS, cron y la copia remota deben activarse y comprobarse en el servidor de destino.
 
 - El ticket es un comprobante imprimible; no se ha agregado facturación electrónica FEL.
 - Tarjeta y transferencia son medios de pago declarados, sin pasarela ni validación bancaria.
-- Se agregó anulación administrativa con motivo, devolución de existencias y reembolso de efectivo en el turno abierto del Administrador; no se modifica el arqueo del turno original. No hay devoluciones parciales, pago mixto ni compras con varios artículos.
-- Las compras permiten registrar crédito además de sus otros medios de pago y no generan automáticamente egresos de caja. Caja representa efectivo, no conciliación bancaria.
+- La anulación administrativa conserva motivo, comprobante y movimientos de reversión; exige efectivo suficiente en el turno abierto del Administrador. No hay devoluciones parciales ni pago mixto.
+- Las compras de varios artículos admiten crédito y abonos. Un pago en efectivo sale de caja solo cuando se elige ese origen; fondos externos no alteran caja. Las compras anteriores sin saldo registrado requieren conciliación.
 - El margen mostrado es bruto estimado y no descuenta gastos generales.
 - Los precios son finales; la tasa de IVA del detalle es informativa.
 - Los ajustes se solicitan mediante conteos pendientes y se aplican una sola vez tras aprobación del Administrador, generando movimientos `ENTRADA` o `SALIDA`.
 - La configuración general tiene una página informativa protegida; su edición persistente está pendiente.
-- Quedan pendientes copias de seguridad, auditoría, límites de intentos de acceso, pruebas de carga y validación del despliegue.
+- Se incluyen respaldo con snapshot y restauración verificable, despliegue Docker/HTTPS y plantilla de cron. Su activación, copia remota y comprobación en el servidor requieren configurar el destino. Continúan pendientes auditoría general, límite de intentos de acceso y pruebas de carga.
 
 La documentación fuente está en [Markdown](documentacion/Logica_del_proyecto_PUNTO_COM.md). Su [PDF](documentacion/Logica_del_proyecto_PUNTO_COM.pdf) se genera a partir del Markdown; para actualizarlo después de editar el documento, ejecuta:
 

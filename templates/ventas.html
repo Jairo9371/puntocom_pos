@@ -31,6 +31,7 @@
           <th>Método</th>
           <th>Total</th>
           <th>Estado</th>
+          <th>Pago</th>
           <th></th>
         </tr>
       </thead>
@@ -45,6 +46,10 @@
           <td>{{v.total|q}}</td>
           <td>{{v.estado}}</td>
           <td>
+            <span class="badge text-bg-{{ 'success' if v.estado_pago == 'CONFIRMADO' else ('warning' if v.estado_pago == 'PENDIENTE' else 'danger') }}">{{ v.estado_pago|default('CONFIRMADO') }}</span>
+            {% if v.motivo_pago %}<small class="d-block">{{ v.motivo_pago }}</small>{% endif %}
+          </td>
+          <td>
             <a
               class="btn btn-sm btn-outline-primary"
               href="{{url_for('ticket',vid=v.id_venta)}}"
@@ -58,11 +63,24 @@
               <button type="submit" class="btn btn-sm btn-outline-danger">Anular</button>
             </form>
             {% endif %}
+            {% if puede('ventas.registrar') and v.estado_pago == 'PENDIENTE' %}
+            <form method="post" action="{{ url_for('venta_pago', vid=v.id_venta) }}" class="mt-2"
+                  onsubmit="return confirm('¿Confirmas el estado del pago tras comprobarlo? Esta decisión es definitiva.');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <select name="estado_pago" class="form-select form-select-sm" aria-label="Estado del pago de {{ v.numero_ticket }}" onchange="this.form.elements.motivo.required=this.value==='FALLIDO'">
+                <option value="CONFIRMADO">Confirmado manualmente</option>
+                <option value="FALLIDO">Fallido</option>
+              </select>
+              <input name="motivo" maxlength="500" class="form-control form-control-sm mt-1" placeholder="Motivo (obligatorio si falló)" aria-label="Motivo del estado del pago de {{ v.numero_ticket }}">
+              <button class="btn btn-sm btn-outline-primary mt-1">Guardar estado del pago</button>
+              <small class="d-block text-muted">Comprueba el pago antes de confirmar. El turno original debe seguir abierto; si ya cerró, resuelve como fallido.</small>
+            </form>
+            {% endif %}
           </td>
         </tr>
         {% else %}
         <tr>
-          <td colspan="8">No se encontraron ventas.</td>
+          <td colspan="9">No se encontraron ventas.</td>
         </tr>
         {% endfor %}
       </tbody>

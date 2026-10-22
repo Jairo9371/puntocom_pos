@@ -1,0 +1,7 @@
+# Instalar en /etc/cron.d/puntocom-backup (root:root, modo 0644), en Linux.
+# La hora usa America/Guatemala. El servidor debe usar esa zona o configurar el
+# equivalente en su planificador. Cron no es universalmente compatible con CRON_TZ.
+# Crear antes /srv/puntocom-backups modo 0700 y el archivo log modo 0600.
+# El proyecto de ejemplo está en /srv/puntocom_pos; ajustar ruta si corresponde.
+# Cada salida !=0 requiere alerta externa; este archivo solo configura ejecución.
+17 2 * * * root cd /srv/puntocom_pos && /usr/bin/docker compose --env-file deployment/.env run --rm -T maintenance python -m deployment.respaldos backup --directory /backups --verify-cleanup >> /var/log/puntocom-backup.log 2>&1

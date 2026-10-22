@@ -24,6 +24,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--solo-conexion', action='store_true')
     parser.add_argument('--patron', default='test_*_pg.py')
+    parser.add_argument('--sin-comparar-instalacion', action='store_true',
+                        help='Prueba el esquema del repositorio antes de migrar la instalación actual.')
     argumentos = parser.parse_args()
     config = configuracion_origen()
     origen = motor_origen(config)
@@ -37,10 +39,11 @@ def main():
         print('Permiso de crear base temporal:', bool(info['crear_base']), flush=True)
         if argumentos.solo_conexion:
             return 0
-        esquema_actual = contrato_esquema(origen)
+        esquema_actual = None if argumentos.sin_comparar_instalacion else contrato_esquema(origen)
         with BaseTemporalPostgres(config) as base:
             print('Base desechable creada desde template0, con el esquema del repositorio.', flush=True)
-            diferencias = comparar_contratos(esquema_actual, contrato_esquema(base.engine))
+            diferencias = [] if esquema_actual is None else comparar_contratos(esquema_actual, contrato_esquema(base.engine))
+            reporte['comparacion_instalacion_omitida'] = esquema_actual is None
             reporte['diferencias_esquema_instalado'] = diferencias
             print('Diferencias de contrato en la instalación:', len(diferencias), flush=True)
             for diferencia in diferencias:

@@ -10,9 +10,14 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="row g-3">
     <div class="col-md-4">
-      <label class="form-label" for="codigo">Código interno *</label>
+      <label class="form-label" for="codigo">Código interno{{ ' *' if item else '' }}</label>
+      {% if item %}
       <input id="codigo" class="form-control" name="codigo" required maxlength="50"
-             value="{{ item.codigo if item else '' }}">
+             value="{{ item.codigo }}">
+      {% else %}
+      <input id="codigo" class="form-control" value="Se genera automáticamente al guardar" disabled>
+      <small class="text-muted">Se asignará un código único, por ejemplo PC-000001.</small>
+      {% endif %}
     </div>
     <div class="col-md-4">
       <label class="form-label" for="codigo_barras">Código de barras</label>

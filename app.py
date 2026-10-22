@@ -2,11 +2,12 @@
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from uuid import uuid4
 
 from dotenv import load_dotenv
 from flask import Flask, flash, jsonify, redirect, render_template, request, send_file, url_for, abort
 from flask_login import LoginManager, UserMixin, current_user, login_required, login_user, logout_user
-from flask_wtf.csrf import CSRFProtect
+from flask_wtf.csrf import CSRFProtect, CSRFError
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -15,7 +16,10 @@ from configuracion import TZ, cargar_configuracion
 from datos import db, one, rows, value
 from reportes_excel import generar_excel_ventas, resolver_rango_fechas
 from validaciones import entero, money, solo_letras, validar_correo, validar_datos_gestion
-from ventas_servicio import METODOS_PAGO, registrar_venta, anular_venta
+from ventas_servicio import METODOS_PAGO, registrar_venta, anular_venta, resolver_pago, IdempotenciaError
+from caja_servicio import operar_caja
+from compras_servicio import registrar_compra, registrar_abono
+from productos_servicio import insertar_producto
 from permisos import (ROLES, MENSAJE_ACCESO_DENEGADO, tiene_permiso, permiso_requerido,
                       exigir_permiso, destino_inicio, usuario_con_permiso)
 from administracion_servicio import (RegistroNoEncontrado, preparar_listado, operar_registro,
@@ -28,6 +32,41 @@ csrf = CSRFProtect()
 db.init_app(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
+
+
+@login_manager.unauthorized_handler
+def sesion_requerida():
+    if request.is_json:
+        return jsonify(ok=False, error='Tu sesión venció. Inicia sesión y vuelve al punto de venta.',
+                       codigo='sesion_expirada'), 401
+    return redirect(url_for('login'))
+
+
+@app.errorhandler(CSRFError)
+def csrf_invalido(_):
+    mensaje = 'La sesión del formulario venció. Recarga la página antes de volver a intentarlo.'
+    if request.is_json:
+        return jsonify(ok=False, error=mensaje, codigo='csrf_expirado'), 400
+    return render_template('message.html', titulo='Formulario vencido', mensaje=mensaje), 400
+
+
+@app.get('/health/live')
+def salud_proceso():
+    return jsonify(ok=True)
+
+
+@app.get('/health/ready')
+def salud_base():
+    try:
+        # Comprueba conexión y esquema requerido, incluso si aún no hay registros.
+        db.session.execute(text('SELECT estado_pago,clave_operacion FROM venta LIMIT 0'))
+        db.session.execute(text('SELECT efectivo_esperado,diferencia FROM turno_caja LIMIT 0'))
+        db.session.execute(text('SELECT saldo_pendiente FROM compra LIMIT 0'))
+        db.session.execute(text('SELECT id_pago_compra FROM pago_compra LIMIT 0'))
+        return jsonify(ok=True)
+    except Exception:
+        db.session.rollback()
+        return jsonify(ok=False, error='Servicio temporalmente no disponible.'), 503
 
 class Usuario(UserMixin):
     def __init__(self, row):
@@ -164,12 +203,12 @@ def dashboard():
         SELECT
             (SELECT COALESCE(SUM(total), 0)
              FROM venta
-             WHERE fecha_hora::date = CURRENT_DATE
+             WHERE COALESCE(fecha_confirmacion,fecha_hora)::date = CURRENT_DATE
              AND estado = 'COMPLETADA') AS ventas,
 
             (SELECT COUNT(*)
              FROM venta
-             WHERE fecha_hora::date = CURRENT_DATE
+             WHERE COALESCE(fecha_confirmacion,fecha_hora)::date = CURRENT_DATE
              AND estado = 'COMPLETADA') AS nventas,
 
             (SELECT COUNT(*)
@@ -191,7 +230,7 @@ def dashboard():
              ), 0)
              FROM detalle_venta dv
              JOIN venta v USING(id_venta)
-             WHERE v.fecha_hora::date = CURRENT_DATE
+             WHERE COALESCE(v.fecha_confirmacion,v.fecha_hora)::date = CURRENT_DATE
              AND v.estado = 'COMPLETADA') AS ganancia
     """)
 
@@ -233,7 +272,7 @@ def dashboard():
             INTERVAL '1 day'
         ) d
         LEFT JOIN venta v
-            ON v.fecha_hora::date = d::date
+            ON COALESCE(v.fecha_confirmacion,v.fecha_hora)::date = d::date
             AND v.estado = 'COMPLETADA'
         GROUP BY d
         ORDER BY d
@@ -246,8 +285,8 @@ def dashboard():
             COALESCE(SUM(v.total), 0) AS total
         FROM generate_series(1, 12) AS m(mes)
         LEFT JOIN venta v
-            ON EXTRACT(MONTH FROM v.fecha_hora) = m.mes
-            AND EXTRACT(YEAR FROM v.fecha_hora)
+            ON EXTRACT(MONTH FROM COALESCE(v.fecha_confirmacion,v.fecha_hora)) = m.mes
+            AND EXTRACT(YEAR FROM COALESCE(v.fecha_confirmacion,v.fecha_hora))
                 = EXTRACT(YEAR FROM CURRENT_DATE)
             AND v.estado = 'COMPLETADA'
         GROUP BY m.mes
@@ -304,7 +343,10 @@ def producto_form(pid=None):
     if pid and not producto: abort(404)
     if request.method=='POST':
         try:
-            payload={'categoria':number('id_categoria',1),'codigo':required('codigo'),
+            codigo = request.form.get('codigo', '').strip()
+            if producto and not codigo:
+                codigo = producto['codigo']
+            payload={'categoria':number('id_categoria',1),'codigo':codigo or None,
                      'barras':request.form.get('codigo_barras','').strip() or None,
                      'nombre':required('nombre'),
                      'marca':solo_letras(request.form.get('marca',''), 'Marca', obligatorio=False),
@@ -321,17 +363,17 @@ def producto_form(pid=None):
                   precio_venta=:precio,stock_minimo=:minimo,estado=:activo WHERE id_producto=:id'''),
                   {**payload,'id':pid})
             else:
-                pid_nuevo=value('''INSERT INTO producto(id_categoria,codigo,codigo_barras,nombre,marca,unidad,
-                          costo,precio_venta,stock_minimo,estado)
-                          VALUES(:categoria,:codigo,:barras,:nombre,:marca,:unidad,:costo,:precio,:minimo,:activo)
-                          RETURNING id_producto''',**payload)
+                creado = insertar_producto(db.session, payload)
+                pid_nuevo = creado['id_producto']
+                payload['codigo'] = creado['codigo']
                 stock=number('stock_inicial')
                 if stock:
                     db.session.execute(text('''INSERT INTO movimiento_inventario
                      (id_producto,tipo,cantidad,costo_unitario,motivo,id_usuario)
                      VALUES(:id,'ENTRADA',:cantidad,:costo,'Inventario inicial',:usuario)'''),
                      {'id':pid_nuevo,'cantidad':stock,'costo':payload['costo'],'usuario':int(current_user.id)})
-            db.session.commit(); flash('Producto guardado correctamente.','success')
+            db.session.commit()
+            flash(f"Producto guardado correctamente. Código interno: {payload['codigo']}.", 'success')
             return redirect(url_for('productos'))
         except (ValueError,IntegrityError) as e:
             db.session.rollback(); flash(str(e) if isinstance(e, ValueError) else 'Revisa la categoría o los códigos duplicados.', 'danger')
@@ -465,17 +507,57 @@ def pos():
 def cobrar():
     """Recalcula montos en el servidor y protege stock con bloqueos de filas."""
     try:
-        resultado = registrar_venta(db.session, request.get_json(silent=True), int(current_user.id))
+        datos = request.get_json(silent=True)
+        if not isinstance(datos, dict):
+            raise ValueError('Solicitud de cobro inválida.')
+        clave = request.headers.get('Idempotency-Key') or datos.get('clave_operacion')
+        if not isinstance(clave, str) or not clave.strip():
+            raise ValueError('Falta el identificador de la operación. Recarga el punto de venta.')
+        if datos.get('clave_operacion') and datos['clave_operacion'] != clave:
+            raise ValueError('Los identificadores de la operación no coinciden.')
+        datos = dict(datos, clave_operacion=clave)
+        resultado = registrar_venta(db.session, datos, int(current_user.id))
         db.session.commit()
         return jsonify(ok=True, **resultado)
     except PermissionError:
         db.session.rollback(); abort(403)
+    except IdempotenciaError as error:
+        db.session.rollback()
+        return jsonify(ok=False, error=str(error), codigo='clave_reutilizada'), 409
     except ValueError as e:
-        db.session.rollback(); return jsonify(ok=False,error=str(e)),400
+        db.session.rollback()
+        return jsonify(ok=False, error=str(e), codigo='cobro_rechazado'), 400
+    except Exception:
+        db.session.rollback(); app.logger.exception('Cobrar venta'); return jsonify(ok=False,error='No se pudo guardar la venta.'),500
+
+@app.post('/ventas/<int:vid>/pago')
+@permiso_requerido('ventas.registrar')
+def venta_pago(vid):
+    datos = request.get_json(silent=True) if request.is_json else request.form
+    try:
+        if not hasattr(datos, 'get'):
+            raise ValueError('Solicitud de pago inválida.')
+        resultado = resolver_pago(db.session, vid, int(current_user.id),
+                                 datos.get('estado_pago'), datos.get('motivo', ''))
+        db.session.commit()
+        if request.is_json:
+            return jsonify(ok=True, **resultado)
+        flash('Estado del pago actualizado.', 'success')
+    except ValueError as error:
+        db.session.rollback()
+        if request.is_json:
+            return jsonify(ok=False, error=str(error)), 400
+        flash(str(error), 'danger')
     except PermissionError:
         db.session.rollback(); abort(403)
     except Exception:
-        db.session.rollback(); app.logger.exception('Cobrar venta'); return jsonify(ok=False,error='No se pudo guardar la venta.'),500
+        db.session.rollback()
+        app.logger.exception('Actualizar estado de pago')
+        if request.is_json:
+            return jsonify(ok=False, error='No se pudo actualizar el pago.'), 500
+        flash('No se pudo actualizar el pago.', 'danger')
+    return redirect(url_for('ventas'))
+
 
 @app.get('/ventas')
 @permiso_requerido('ventas.ver')
@@ -508,73 +590,74 @@ def compras():
                 ORDER BY c.id_compra DESC LIMIT 150''')
     return render_template('compras.html',data=data,proveedores=rows('SELECT * FROM proveedor WHERE estado=TRUE ORDER BY razon_social'),
                            productos=rows('SELECT id_producto,codigo,nombre,costo FROM producto WHERE estado=TRUE ORDER BY codigo'),
-                           metodos_pago=METODOS_COMPRA)
+                           detalles=rows('''SELECT d.*,p.codigo,p.nombre FROM detalle_compra d
+                               JOIN producto p USING(id_producto)
+                               JOIN (SELECT id_compra FROM compra ORDER BY id_compra DESC LIMIT 150) c USING(id_compra)
+                               ORDER BY d.id_compra DESC,d.id_detalle_compra'''),
+                           pagos=rows('''SELECT pc.*,u.nombre AS usuario FROM pago_compra pc
+                               JOIN usuario u USING(id_usuario)
+                               JOIN (SELECT id_compra FROM compra ORDER BY id_compra DESC LIMIT 150) c USING(id_compra)
+                               ORDER BY pc.id_compra DESC,pc.fecha DESC,pc.id_pago_compra DESC'''),
+                           metodos_pago=METODOS_COMPRA,
+                           clave_operacion=uuid4().hex, clave_abono=uuid4().hex)
 
 @app.post('/compras/nueva')
 @permiso_requerido('proveedores.gestionar')
 def compra_nueva():
     try:
-        proveedor=number('id_proveedor',1); producto=number('id_producto',1)
-        cantidad=number('cantidad',1); costo=numeric('costo_unitario')
-        metodo=required('metodo_pago')
-        if metodo not in METODOS_COMPRA: raise ValueError('Método de pago inválido.')
-        factura=request.form.get('numero_factura','').strip()
-        usuario_con_permiso(db.session,int(current_user.id),'proveedores.gestionar')
-        if not one('SELECT id_proveedor FROM proveedor WHERE id_proveedor=:id AND estado=TRUE FOR SHARE',id=proveedor): raise ValueError('Proveedor inactivo o inexistente.')
-        p=one('SELECT id_producto FROM producto WHERE id_producto=:id AND estado=TRUE FOR UPDATE',id=producto)
-        if not p: raise ValueError('Producto no encontrado.')
-        total=money(costo*cantidad)
-        cid=value('''INSERT INTO compra(id_proveedor,id_usuario,numero_factura,metodo_pago,total)
-                     VALUES(:prov,:user,:factura,:metodo,:total) RETURNING id_compra''',
-                  prov=proveedor,user=int(current_user.id),factura=factura,metodo=metodo,total=total)
-        db.session.execute(text('''INSERT INTO detalle_compra(id_compra,id_producto,cantidad,costo_unitario)
-                       VALUES(:compra,:producto,:cantidad,:costo)'''),{
-                       'compra':cid,'producto':producto,'cantidad':cantidad,'costo':costo})
-        db.session.execute(text('''INSERT INTO movimiento_inventario(id_producto,tipo,cantidad,costo_unitario,motivo,id_usuario)
-                    VALUES(:producto,'ENTRADA',:cantidad,:costo,:motivo,:usuario)'''),{
-                    'producto':producto,'cantidad':cantidad,'costo':costo,'motivo':f'Compra #{cid}','usuario':int(current_user.id)})
-        db.session.execute(text('UPDATE producto SET costo=:costo WHERE id_producto=:id'),{'costo':costo,'id':producto})
-        db.session.commit(); flash('Compra registrada y stock actualizado.','success')
+        datos = request.get_json(silent=True) if request.is_json else request.form
+        resultado = registrar_compra(db.session, datos, int(current_user.id))
+        db.session.commit()
+        if request.is_json:
+            return jsonify(ok=True, **resultado)
+        flash('Compra registrada y stock actualizado.', 'success')
     except (ValueError,IntegrityError) as e:
-        db.session.rollback(); flash(str(e) if isinstance(e,ValueError) else 'Datos de compra incorrectos.','danger')
+        db.session.rollback()
+        mensaje = str(e) if isinstance(e, ValueError) else 'Datos de compra incorrectos.'
+        if request.is_json:
+            return jsonify(ok=False, error=mensaje), 400
+        flash(mensaje, 'danger')
     except PermissionError:
         db.session.rollback(); abort(403)
     except Exception:
-        db.session.rollback(); app.logger.exception('Compra'); flash('Error al guardar la compra.','danger')
+        db.session.rollback(); app.logger.exception('Compra')
+        if request.is_json:
+            return jsonify(ok=False, error='Error al guardar la compra.'), 500
+        flash('Error al guardar la compra.', 'danger')
+    return redirect(url_for('compras'))
+
+
+@app.post('/compras/<int:cid>/abonos')
+@permiso_requerido('proveedores.gestionar')
+def compra_abono(cid):
+    try:
+        datos = request.get_json(silent=True) if request.is_json else request.form
+        resultado = registrar_abono(db.session, cid, datos, int(current_user.id))
+        db.session.commit()
+        if request.is_json:
+            return jsonify(ok=True, **resultado)
+        flash('Pago a proveedor registrado.', 'success')
+    except (ValueError, IntegrityError) as error:
+        db.session.rollback()
+        mensaje = str(error) if isinstance(error, ValueError) else 'Datos del pago incorrectos.'
+        if request.is_json:
+            return jsonify(ok=False, error=mensaje), 400
+        flash(mensaje, 'danger')
+    except PermissionError:
+        db.session.rollback(); abort(403)
+    except Exception:
+        db.session.rollback(); app.logger.exception('Pago a proveedor')
+        if request.is_json:
+            return jsonify(ok=False, error='No se pudo guardar el pago.'), 500
+        flash('No se pudo guardar el pago.', 'danger')
     return redirect(url_for('compras'))
 
 @app.route('/caja',methods=['GET','POST'])
 @permiso_requerido('ventas.registrar')
 def caja():
     if request.method=='POST':
-        accion=request.form.get('accion')
         try:
-            if accion == 'abrir':
-                # Un SELECT de turnos vacíos no bloquea la ausencia de un turno.
-                # Serializar por usuario impide dos aperturas simultáneas.
-                # NO KEY UPDATE es compatible con las referencias FK de ventas.
-                usuario_con_permiso(db.session,int(current_user.id),'ventas.registrar',bloqueo='NO KEY UPDATE')
-            if accion!='abrir': usuario_con_permiso(db.session,int(current_user.id),'ventas.registrar')
-            turno=one('''SELECT * FROM turno_caja WHERE id_usuario=:u AND estado='ABIERTO'
-                         ORDER BY id_turno DESC LIMIT 1 FOR UPDATE''',u=int(current_user.id))
-            if accion=='abrir':
-                if turno: raise ValueError('Ya tienes un turno abierto.')
-                db.session.execute(text('''INSERT INTO turno_caja(id_usuario,fondo_inicial,estado)
-                          VALUES(:u,:fondo,'ABIERTO')'''),{'u':int(current_user.id),'fondo':numeric('fondo_inicial')})
-            elif accion=='movimiento':
-                if not turno: raise ValueError('Abre caja primero.')
-                tipo=required('tipo')
-                if tipo not in ('INGRESO','EGRESO'): raise ValueError('Tipo inválido.')
-                db.session.execute(text('''INSERT INTO movimiento_caja(id_turno,tipo,concepto,monto)
-                            VALUES(:turno,:tipo,:concepto,:monto)'''),{'turno':turno['id_turno'],'tipo':tipo,
-                            'concepto':required('concepto'),'monto':numeric('monto',Decimal('0.01'))})
-            elif accion=='cerrar':
-                if not turno: raise ValueError('No tienes un turno abierto.')
-                contado=numeric('efectivo_contado')
-                db.session.execute(text('''UPDATE turno_caja SET cierre=NOW(),estado='CERRADO',
-                                    efectivo_contado=:contado WHERE id_turno=:id'''),
-                                    {'contado':contado,'id':turno['id_turno']})
-            else: raise ValueError('Acción no válida.')
+            operar_caja(db.session, request.form, int(current_user.id))
             db.session.commit(); flash('Operación de caja guardada.','success')
         except (ValueError,IntegrityError) as e:
             db.session.rollback(); flash(str(e) if isinstance(e,ValueError) else 'Datos incorrectos.','danger')
@@ -611,14 +694,17 @@ def reportes():
     condicion, parametros = alcance_ventas('v')
     limites = {'inicio': inicio, 'fin': fin + timedelta(days=1),**parametros}
     resumen = one(f"""SELECT COUNT(*) AS cantidad,COALESCE(SUM(total),0) AS total FROM venta v
-                     WHERE fecha_hora >= :inicio AND fecha_hora < :fin AND estado='COMPLETADA' {condicion}""", **limites)
-    dias = rows(f"""SELECT fecha_hora::date AS fecha,SUM(total) AS total FROM venta v
-                   WHERE fecha_hora >= :inicio AND fecha_hora < :fin AND estado='COMPLETADA' {condicion}
-                   GROUP BY fecha_hora::date ORDER BY fecha""", **limites)
+                     WHERE COALESCE(v.fecha_confirmacion,v.fecha_hora) >= :inicio
+                       AND COALESCE(v.fecha_confirmacion,v.fecha_hora) < :fin AND estado='COMPLETADA' {condicion}""", **limites)
+    dias = rows(f"""SELECT COALESCE(v.fecha_confirmacion,v.fecha_hora)::date AS fecha,SUM(total) AS total FROM venta v
+                   WHERE COALESCE(v.fecha_confirmacion,v.fecha_hora) >= :inicio
+                     AND COALESCE(v.fecha_confirmacion,v.fecha_hora) < :fin AND estado='COMPLETADA' {condicion}
+                   GROUP BY COALESCE(v.fecha_confirmacion,v.fecha_hora)::date ORDER BY fecha""", **limites)
     productos = rows(f"""SELECT p.nombre,SUM(d.cantidad) AS cantidad,
                         SUM(d.precio_unitario*d.cantidad-d.descuento) AS total
                         FROM detalle_venta d JOIN venta v USING(id_venta) JOIN producto p USING(id_producto)
-                        WHERE v.fecha_hora >= :inicio AND v.fecha_hora < :fin AND v.estado='COMPLETADA' {condicion}
+                        WHERE COALESCE(v.fecha_confirmacion,v.fecha_hora) >= :inicio
+                          AND COALESCE(v.fecha_confirmacion,v.fecha_hora) < :fin AND v.estado='COMPLETADA' {condicion}
                         GROUP BY p.id_producto,p.nombre ORDER BY cantidad DESC LIMIT 15""", **limites)
     return render_template('reportes.html', resumen=resumen, dias=dias, productos=productos,
                            desde=inicio.isoformat(), hasta=fin.isoformat())
@@ -632,12 +718,13 @@ def descargar_ventas_excel():
     try:
         inicio, fin = rango_reporte()
         condicion, parametros = alcance_ventas('v')
-        ventas = rows(f"""SELECT v.numero_ticket,v.fecha_hora,c.nombre_razon_social AS cliente,
+        ventas = rows(f"""SELECT v.numero_ticket,COALESCE(v.fecha_confirmacion,v.fecha_hora) AS fecha_hora,c.nombre_razon_social AS cliente,
                          u.nombre AS cajero,v.metodo_pago,v.total,v.estado
                          FROM venta v JOIN cliente c USING(id_cliente) JOIN usuario u USING(id_usuario)
-                         WHERE v.fecha_hora >= :inicio AND v.fecha_hora < :fin
+                         WHERE COALESCE(v.fecha_confirmacion,v.fecha_hora) >= :inicio
+                           AND COALESCE(v.fecha_confirmacion,v.fecha_hora) < :fin
                            AND v.estado='COMPLETADA' {condicion}
-                         ORDER BY v.fecha_hora DESC,v.id_venta DESC""",
+                         ORDER BY COALESCE(v.fecha_confirmacion,v.fecha_hora) DESC,v.id_venta DESC""",
                       inicio=inicio, fin=fin + timedelta(days=1),**parametros)
         archivo = generar_excel_ventas(ventas, zona_horaria=TZ)
     except ValueError as error:
@@ -787,6 +874,14 @@ def migrar_accesos():
     print('Migración de accesos completada; los datos e historiales se conservaron.')
 
 
+@app.cli.command('migrar-operacion')
+def migrar_operacion():
+    """Aplica roles, protección contra duplicados, pagos, caja y compras."""
+    from migraciones import aplicar_migraciones_operacion
+    aplicar_migraciones_operacion(db.engine)
+    print('Migraciones de operación completadas; los datos e historiales se conservaron.')
+
+
 from inventario_rutas import inventario_bp
 app.register_blueprint(inventario_bp)
 # Compatibilidad con los nombres utilizados por las pantallas anteriores.
@@ -798,7 +893,7 @@ app.add_url_rule('/inventario/movimiento',endpoint='inventario_movimiento',build
 def comprobar_acceso_antes_de_csrf():
     """Deniega permisos antes de procesar formularios o sus datos."""
     vista=app.view_functions.get(request.endpoint)
-    if vista and request.endpoint not in ('login','static') and not current_user.is_authenticated:
+    if vista and request.endpoint not in ('login', 'static', 'salud_proceso', 'salud_base') and not current_user.is_authenticated:
         return login_manager.unauthorized()
     permiso=getattr(vista,'permiso',None)
     if request.endpoint in ('gestion','gestion_estado','gestion_eliminar'):

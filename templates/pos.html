@@ -11,6 +11,7 @@ content %}
     >Caja abierta #{{turno.id_turno}}</span
   >{% endif %}
 </div>
+<div id="aviso-pos" class="alert alert-info d-none" role="status"></div>
 <div class="row g-4">
   <div class="col-lg-6">
     <div class="panel">
@@ -64,6 +65,7 @@ content %}
       <div class="d-flex gap-2 mt-3">
         <button class="btn btn-outline-danger" onclick="vaciar()">Vaciar</button
         ><button
+          id="abrir-cobro"
           class="btn btn-primary flex-grow-1 py-3"
           onclick="abrirCobro()"
           {%
@@ -99,6 +101,14 @@ content %}
           <option value="TARJETA">Tarjeta</option>
           <option value="TRANSFERENCIA">Transferencia</option>
         </select>
+        <div id="seccion-estado" class="d-none mb-3">
+          <label class="form-label" for="estado-pago">Estado del pago</label>
+          <select id="estado-pago" class="form-select">
+            <option value="PENDIENTE">Pendiente de comprobar</option>
+            <option value="CONFIRMADO">Confirmado manualmente</option>
+          </select>
+          <small class="text-muted">Comprueba el pago antes de marcarlo confirmado. Un pendiente no entrega inventario ni registra ingresos; resuélvelo en Ventas antes de cerrar el turno.</small>
+        </div>
         <div id="seccion-recibido">
           <label class="form-label">Monto recibido</label
           ><input
@@ -128,6 +138,8 @@ content %}
 <script id="pos-productos" type="application/json">{{ products | tojson }}</script>
 <div id="pos-config"
      data-cobrar-url="{{ url_for('cobrar') }}"
+     data-usuario="{{ current_user.id }}"
+     data-turno-abierto="{{ 'true' if turno else 'false' }}"
      data-csrf-token="{{ csrf_token() }}" hidden></div>
 {% endblock %}
 {% block scripts %}
@@ -136,9 +148,49 @@ content %}
   const configuracionPOS = document.getElementById('pos-config').dataset;
   const csrfToken = configuracionPOS.csrfToken;
   const cobrarURL = configuracionPOS.cobrarUrl;
+  const turnoAbierto = configuracionPOS.turnoAbierto === 'true';
+  const clientePredeterminado = document.getElementById('cliente').value;
   const puedeDescontar = {{ puede('descuentos.modificar') | tojson }};
   let items = {};
   let modal;
+  let intento = null;
+  let claveActual = null;
+  let firmaCobro = null;
+  let posListo = false;
+  const almacenamiento = 'puntocom-pos:' + configuracionPOS.usuario;
+
+  function nuevaClave() {
+    return Array.from(crypto.getRandomValues(new Uint8Array(16)), n => n.toString(16).padStart(2, '0')).join('');
+  }
+
+  function aviso(texto) {
+    const elemento = document.getElementById('aviso-pos');
+    elemento.textContent = texto;
+    elemento.classList.toggle('d-none', !texto);
+  }
+
+  function guardarEstado() {
+    if (!posListo) return;
+    sessionStorage.setItem(almacenamiento, JSON.stringify({
+      tab: tabId, items, intento, clave: claveActual, firma_cobro: firmaCobro,
+      catalogo: productos.filter(p => items[p.id_producto]),
+      cliente: document.getElementById('cliente').value,
+      metodo: document.getElementById('metodo').value,
+      recibido: document.getElementById('recibido').value,
+      pago: document.getElementById('estado-pago').value
+    }));
+    // Un intento existente puede recuperar una venta ya guardada aun si cerraron caja.
+    document.getElementById('abrir-cobro').disabled = !turnoAbierto && !intento;
+  }
+
+  function editable() {
+    if (!posListo) return false;
+    if (intento) {
+      aviso('Hay un cobro sin respuesta confirmada. Abre COBRAR y reintenta para recuperar su resultado antes de cambiar el carrito.');
+      return false;
+    }
+    return true;
+  }
 
   const q = n => 'Q ' + Number(n).toLocaleString('es-GT', {
     minimumFractionDigits: 2,
@@ -154,7 +206,7 @@ content %}
 
   function lista() {
     const term = document.getElementById('buscar').value.trim().toLowerCase();
-    const encontrados = productos.filter(p =>
+    const encontrados = productos.filter(p => !p.estadoRecuperado &&
       (p.nombre + ' ' + p.codigo + ' ' + (p.codigo_barras || ''))
         .toLowerCase().includes(term)
     ).slice(0, 80);
@@ -169,6 +221,7 @@ content %}
   }
 
   function agregar(id) {
+    if (!editable()) return;
     const p = productos.find(x => Number(x.id_producto) === Number(id));
     if (!p || Number(p.existencia_actual) <= 0) return alert('Sin existencias');
     if (!items[id]) items[id] = { id: id, cantidad: 0, descuento: 0 };
@@ -183,6 +236,7 @@ content %}
   }
 
   function cambiar(id, prop, val) {
+    if (!editable()) return;
     const i = items[id];
     if (!i) return;
     const p = productos.find(x => Number(x.id_producto) === Number(id));
@@ -199,11 +253,13 @@ content %}
   }
 
   function borrar(id) {
+    if (!editable()) return;
     delete items[id];
     dibujar();
   }
 
   function vaciar() {
+    if (!editable()) return;
     if (Object.keys(items).length && !confirm('¿Vaciar carrito?')) return;
     items = {};
     dibujar();
@@ -218,6 +274,29 @@ content %}
       desc += i.descuento;
     }
     return { bruto: dec(bruto), desc: dec(desc), total: dec(bruto - desc) };
+  }
+
+  function firmaDelCarrito() {
+    return JSON.stringify(Object.values(items).map(i => [
+      Number(i.id), i.cantidad, i.descuento,
+      Number(productos.find(p => Number(p.id_producto) === Number(i.id)).precio_venta)
+    ]));
+  }
+
+  function limpiarFormularioCobro() {
+    firmaCobro = null;
+    document.getElementById('cliente').value = clientePredeterminado;
+    document.getElementById('metodo').value = 'EFECTIVO';
+    document.getElementById('estado-pago').value = 'PENDIENTE';
+    document.getElementById('recibido').value = '';
+    document.getElementById('modal-total').textContent = q(0);
+    document.getElementById('cambio').textContent = q(0);
+    document.getElementById('error-cobro').textContent = '';
+    document.getElementById('confirmar').textContent = 'GUARDAR VENTA';
+    for (const id of ['cliente', 'metodo', 'estado-pago', 'recibido']) {
+      document.getElementById(id).disabled = false;
+    }
+    aviso('');
   }
 
   function dibujar() {
@@ -241,51 +320,97 @@ content %}
     document.getElementById('subtotal').textContent = q(r.bruto);
     document.getElementById('descuentos').textContent = q(r.desc);
     document.getElementById('total').textContent = q(r.total);
+    guardarEstado();
   }
 
   function abrirCobro() {
+    if (!posListo) return;
+    if (!turnoAbierto && !intento) return aviso('Abre caja antes de iniciar un nuevo cobro.');
     if (!Object.keys(items).length) return alert('Agrega al menos un producto');
-    document.getElementById('modal-total').textContent = q(resumen().total);
-    document.getElementById('recibido').value = resumen().total;
+    const total = resumen().total;
+    const firma = firmaDelCarrito();
+    document.getElementById('modal-total').textContent = q(total);
+    if (!intento && (firmaCobro !== firma || !document.getElementById('recibido').value)) {
+      document.getElementById('recibido').value = total;
+      firmaCobro = firma;
+    }
     document.getElementById('error-cobro').textContent = '';
+    for (const id of ['cliente', 'metodo', 'estado-pago', 'recibido']) {
+      document.getElementById(id).disabled = Boolean(intento);
+    }
+    document.getElementById('confirmar').textContent = intento ? 'REINTENTAR MISMO COBRO' : 'GUARDAR VENTA';
     pagoCambia();
-    modal = new bootstrap.Modal(document.getElementById('cobroModal'));
+    modal = modal || new bootstrap.Modal(document.getElementById('cobroModal'));
     modal.show();
   }
 
   function pagoCambia() {
+    const efectivo = document.getElementById('metodo').value === 'EFECTIVO';
     document.getElementById('seccion-recibido').style.display =
-      document.getElementById('metodo').value === 'EFECTIVO' ? 'block' : 'none';
+      efectivo ? 'block' : 'none';
+    document.getElementById('seccion-estado').classList.toggle('d-none', efectivo);
     actualizarCambio();
+    guardarEstado();
   }
 
   function actualizarCambio() {
     const recibido = Number(document.getElementById('recibido').value) || 0;
     document.getElementById('cambio').textContent = q(Math.max(0, dec(recibido - resumen().total)));
+    guardarEstado();
   }
 
   async function confirmarCobro() {
+    if (!posListo) return;
     const btn = document.getElementById('confirmar');
     btn.disabled = true;
-    const payload = {
-      items: Object.values(items).map(i => ({ ...i, descuento: puedeDescontar ? i.descuento : 0 })),
+    const payload = intento ? intento.payload : {
+      items: Object.values(items).map(i => ({ id: i.id, cantidad: i.cantidad, descuento: puedeDescontar ? i.descuento : 0 })),
       cliente_id: document.getElementById('cliente').value,
       metodo: document.getElementById('metodo').value,
-      recibido: document.getElementById('recibido').value
+      recibido: document.getElementById('metodo').value === 'EFECTIVO' ? document.getElementById('recibido').value : '0',
+      estado_pago: document.getElementById('metodo').value === 'EFECTIVO' ? 'CONFIRMADO' : document.getElementById('estado-pago').value
     };
     try {
+      if (!intento) {
+        claveActual = claveActual || nuevaClave();
+        intento = { clave: claveActual, payload };
+      }
+      // Persistir antes de enviar permite recuperar un commit cuya respuesta se perdió.
+      guardarEstado();
+      for (const id of ['cliente', 'metodo', 'estado-pago', 'recibido']) {
+        document.getElementById(id).disabled = true;
+      }
       const res = await fetch(cobrarURL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken, 'Idempotency-Key': intento.clave },
         body: JSON.stringify(payload)
       });
+      if (res.redirected || res.status === 401) {
+        throw Error('Tu sesión venció. Inicia sesión y vuelve al punto de venta para reintentar este mismo cobro; el carrito está guardado en esta pestaña.');
+      }
+      if (!(res.headers.get('content-type') || '').includes('application/json')) {
+        throw Error('La sesión o el formulario venció. Recarga esta pestaña y reintenta el mismo cobro; el carrito está guardado.');
+      }
       const data = await res.json();
+      if (data.codigo === 'cobro_rechazado') {
+        // El servidor aseguró rollback. La clave se conserva para la corrección.
+        intento = null;
+        guardarEstado();
+        for (const id of ['cliente', 'metodo', 'estado-pago', 'recibido']) document.getElementById(id).disabled = false;
+      }
       if (!res.ok || !data.ok) throw Error(data.error || 'Error al cobrar');
       items = {};
+      intento = null;
+      claveActual = null;
+      limpiarFormularioCobro();
+      dibujar();
+      pagoCambia();
       modal.hide();
       window.location.href = '/ventas/' + encodeURIComponent(data.id_venta) + '/ticket';
     } catch (e) {
-      document.getElementById('error-cobro').textContent = e.message;
+      document.getElementById('error-cobro').textContent = e instanceof TypeError ?
+        'No se recibió confirmación del servidor. Conservamos el intento; reintenta el mismo cobro para recuperar el resultado sin duplicarlo.' : e.message;
+      if (intento) aviso('Cobro pendiente de respuesta. Conserva esta pestaña y reintenta el mismo cobro; tu carrito sigue guardado.');
     } finally {
       btn.disabled = false;
     }
@@ -300,7 +425,88 @@ content %}
       if (p) agregar(p.id_producto);
     }
   });
-  lista();
-  dibujar();
+  // sessionStorage se copia al duplicar una pestaña. Una exclusión entre pestañas
+  // impide clonar el carrito y su clave; una recarga normal recupera ambos.
+  let guardado;
+  let tabId;
+  function iniciar() {
+    for (const p of guardado?.catalogo || []) {
+      if (!productos.some(actual => Number(actual.id_producto) === Number(p.id_producto))) {
+        productos.push({ ...p, estadoRecuperado: true });
+      }
+    }
+    items = guardado?.items || {};
+    intento = guardado?.intento || null;
+    claveActual = guardado?.clave || null;
+    firmaCobro = guardado?.firma_cobro || null;
+    if (guardado && (intento || Object.keys(items).length)) {
+      document.getElementById('cliente').value = guardado.cliente;
+      document.getElementById('metodo').value = guardado.metodo || 'EFECTIVO';
+      document.getElementById('recibido').value = guardado.recibido || '';
+      document.getElementById('estado-pago').value = guardado.pago || 'PENDIENTE';
+    } else {
+      // Descarta datos de cobros anteriores guardados por versiones previas.
+      claveActual = null;
+      limpiarFormularioCobro();
+    }
+    posListo = true;
+    if (intento) aviso('Se recuperó un cobro sin respuesta confirmada. Pulsa COBRAR y reintenta el mismo cobro para consultar su resultado.');
+    lista();
+    dibujar();
+    pagoCambia();
+  }
+
+  function pestañaDuplicada() {
+    // Solo se elimina la copia de esta pestaña; la original conserva su intento.
+    guardado = null;
+    tabId = nuevaClave();
+    const empezar = () => {
+      iniciar();
+      aviso('Esta pestaña se abrió con una copia de otro carrito. Continúa el cobro original en su pestaña; aquí puedes iniciar una nueva venta.');
+    };
+    if (navigator.locks) {
+      navigator.locks.request('puntocom-pos:' + tabId, () => {
+        empezar();
+        return new Promise(() => {});
+      });
+    } else empezar();
+  }
+
+  async function recuperarCarrito() {
+    try {
+      guardado = JSON.parse(sessionStorage.getItem(almacenamiento) || 'null');
+      tabId = guardado?.tab || nuevaClave();
+      if (navigator.locks) {
+        navigator.locks.request('puntocom-pos:' + tabId, { ifAvailable: true }, bloqueo => {
+          if (!bloqueo) { pestañaDuplicada(); return; }
+          iniciar();
+          return new Promise(() => {}); // El navegador libera al abandonar la página.
+        }).catch(() => aviso('No se pudo recuperar el carrito. Recarga esta pestaña.'));
+      } else if (typeof BroadcastChannel !== 'undefined') {
+        const canal = new BroadcastChannel('puntocom-pos-pestañas');
+        const instancia = nuevaClave();
+        let duplicada = false;
+        canal.onmessage = ({ data }) => {
+          if (data.tab !== tabId || data.instancia === instancia) return;
+          if (data.tipo === 'ocupada') duplicada = true;
+          if (data.tipo === 'consultar') {
+            if (posListo || instancia < data.instancia) canal.postMessage({ tipo: 'ocupada', tab: tabId, instancia });
+            else duplicada = true;
+          }
+        };
+        canal.postMessage({ tipo: 'consultar', tab: tabId, instancia });
+        await new Promise(resolve => setTimeout(resolve, 180));
+        if (duplicada) pestañaDuplicada(); else iniciar();
+      } else {
+        aviso('Este navegador no permite proteger los cobros entre pestañas. Usa una versión actual de Chrome, Edge o Firefox.');
+      }
+    } catch (_) {
+      posListo = false;
+      aviso('No se puede guardar el carrito en esta pestaña. Habilita el almacenamiento del navegador y recarga antes de cobrar.');
+    }
+  }
+  document.getElementById('cliente').addEventListener('change', guardarEstado);
+  document.getElementById('estado-pago').addEventListener('change', guardarEstado);
+  recuperarCarrito();
 </script>
 {% endblock %}

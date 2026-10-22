@@ -1,6 +1,7 @@
 .env
 .env.*
-.env.example
+!.env.example
+!**/.env.example
 venv/
 .venv/
 __pycache__/
@@ -11,3 +12,7 @@ __pycache__/
 *.dump
 /documentacion/
 /Microsoft/
+/backups/
+/secrets/
+*.partial
+*.manifest.json

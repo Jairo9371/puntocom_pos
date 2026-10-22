@@ -1,0 +1,48 @@
+name: Validacion POS
+
+on: [push, pull_request, workflow_dispatch]
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18-bookworm
+        env:
+          POSTGRES_DB: puntocom_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: solo-ci-base-desechable
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d puntocom_ci"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+    env:
+      APP_ENV: testing
+      APP_DEBUG: "false"
+      DB_HOST: 127.0.0.1
+      DB_PORT: "5432"
+      DB_NAME: puntocom_ci
+      DB_USER: postgres
+      DB_PASSWORD: solo-ci-base-desechable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements.lock
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: python -m pip install -r requirements.txt -c requirements.lock
+      - run: python -m pip check
+      - name: Pruebas aisladas
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Integracion, migraciones y concurrencia PostgreSQL
+        run: python tests/postgres/ejecutar.py --sin-comparar-instalacion

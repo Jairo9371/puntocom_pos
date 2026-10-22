@@ -7,6 +7,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from io import BytesIO
 from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
 from openpyxl import load_workbook
 
@@ -123,7 +124,8 @@ class AplicacionTests(unittest.TestCase):
         self.autenticar()
         resultado = {'id_venta': 1, 'numero': 'PC-PRUEBA', 'total': '28.00', 'cambio': '2.00'}
         with patch.object(modulo, 'registrar_venta', return_value=resultado):
-            respuesta = self.client.post('/pos/cobrar', json={'items': []})
+            respuesta = self.client.post('/pos/cobrar', json={'items': []},
+                                         headers={'Idempotency-Key': uuid4().hex})
         self.assertEqual(respuesta.status_code, 200)
         self.assertTrue(respuesta.json['ok'])
         self.session.commit.assert_called_once()
@@ -133,7 +135,8 @@ class AplicacionTests(unittest.TestCase):
         self.autenticar()
         with patch.object(modulo, 'registrar_venta', side_effect=RuntimeError('detalle privado')), \
                 patch.object(modulo.app.logger, 'exception'):
-            respuesta = self.client.post('/pos/cobrar', json={})
+            respuesta = self.client.post('/pos/cobrar', json={},
+                                         headers={'Idempotency-Key': uuid4().hex})
         self.assertEqual(respuesta.status_code, 500)
         self.assertNotIn('detalle privado', respuesta.get_data(as_text=True))
         self.session.rollback.assert_called_once()
@@ -157,26 +160,52 @@ class AplicacionTests(unittest.TestCase):
 
     def test_compra_admite_credito_y_rechaza_metodo_desconocido(self):
         self.autenticar()
-
-        def uno_compra(sql, **params):
-            if 'FROM producto' in sql:
-                return {'id_producto': 1}
-            if 'FROM proveedor' in sql:
-                return {'id_proveedor': 1}
-            return self.uno(sql, **params)
-
         datos = {'id_proveedor': '1', 'id_producto': '1', 'cantidad': '2',
                  'costo_unitario': '9', 'metodo_pago': 'CRÉDITO'}
-        with patch.object(modulo, 'one', side_effect=uno_compra), \
-                patch.object(modulo, 'usuario_con_permiso', return_value={'id_usuario': 1, 'rol': 'Administrador'}):
+        with patch.object(modulo, 'registrar_compra', return_value={'id_compra': 1}) as registrar:
             respuesta = self.client.post('/compras/nueva', data=datos)
+        self.assertEqual(registrar.call_args.args[1]['metodo_pago'], 'CRÉDITO')
         self.assertEqual(respuesta.status_code, 302)
         self.session.commit.assert_called_once()
         self.session.reset_mock()
         datos['metodo_pago'] = 'DESCONOCIDO'
-        respuesta = self.client.post('/compras/nueva', data=datos)
+        with patch.object(modulo, 'registrar_compra', side_effect=ValueError('Método de pago inválido.')):
+            respuesta = self.client.post('/compras/nueva', data=datos)
         self.assertEqual(respuesta.status_code, 302)
         self.session.commit.assert_not_called()
+        self.session.rollback.assert_called_once()
+
+    def test_cobro_exige_clave_antes_de_escribir(self):
+        self.autenticar()
+        with patch.object(modulo, 'registrar_venta') as registrar:
+            respuesta = self.client.post('/pos/cobrar', json={'items': []})
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertEqual(respuesta.json['codigo'], 'cobro_rechazado')
+        registrar.assert_not_called()
+        self.session.commit.assert_not_called()
+
+    def test_clave_reutilizada_responde_conflicto_sin_confirmar(self):
+        self.autenticar()
+        with patch.object(modulo, 'registrar_venta', side_effect=modulo.IdempotenciaError('Otro cobro.')):
+            respuesta = self.client.post('/pos/cobrar', json={},
+                                         headers={'Idempotency-Key': uuid4().hex})
+        self.assertEqual(respuesta.status_code, 409)
+        self.assertEqual(respuesta.json['codigo'], 'clave_reutilizada')
+        self.session.rollback.assert_called_once()
+        self.session.commit.assert_not_called()
+
+    def test_sesion_json_vencida_es_legible(self):
+        respuesta = self.client.post('/pos/cobrar', json={})
+        self.assertEqual(respuesta.status_code, 401)
+        self.assertEqual(respuesta.json['codigo'], 'sesion_expirada')
+
+    def test_salud_publica_y_base_caida_sin_filtrar_detalles(self):
+        self.assertEqual(self.client.get('/health/live').json, {'ok': True})
+        self.assertEqual(self.client.get('/health/ready').status_code, 200)
+        self.session.execute.side_effect = RuntimeError('Detalle privado de conexión')
+        respuesta = self.client.get('/health/ready')
+        self.assertEqual(respuesta.status_code, 503)
+        self.assertNotIn('Detalle privado', respuesta.get_data(as_text=True))
         self.session.rollback.assert_called_once()
 
     def test_plantillas_compilan(self):

@@ -5,6 +5,7 @@ real. No se sustituyen consultas, sesiones SQLAlchemy ni servicios de negocio.
 """
 
 import re
+from uuid import uuid4
 from decimal import Decimal
 from html import unescape
 from io import BytesIO
@@ -75,7 +76,7 @@ class IntegracionPostgres(CasoPostgres):
 
     def _cobrar(self, **cambios):
         return self.client.post('/pos/cobrar', json=self._payload(**cambios),
-                                headers={'X-CSRFToken': self._csrf('/pos')})
+                                headers={'X-CSRFToken': self._csrf('/pos'), 'Idempotency-Key': uuid4().hex})
 
     def _stock(self, producto='producto1'):
         return self._valor('SELECT existencia_actual FROM vista_inventario WHERE id_producto=:id',
@@ -388,7 +389,7 @@ class IntegracionPostgres(CasoPostgres):
             respuesta = self._cobrar(metodo='TARJETA', recibido='0')
             self.assertEqual(respuesta.status_code, 200)
             venta = respuesta.get_json()
-            self._escribir('UPDATE venta SET fecha_hora=:fecha,estado=:estado WHERE id_venta=:id',
+            self._escribir('UPDATE venta SET fecha_hora=:fecha,fecha_confirmacion=:fecha,estado=:estado WHERE id_venta=:id',
                            fecha=fecha, estado='ANULADA' if posicion == 4 else 'COMPLETADA',
                            id=venta['id_venta'])
             if posicion in (1, 2):

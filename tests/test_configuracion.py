@@ -10,6 +10,10 @@ from configuracion import TZ, cargar_configuracion
 
 
 class ConfiguracionTests(unittest.TestCase):
+    def produccion(self, **cambios):
+        return {"APP_ENV": "production", "SECRET_KEY": "0123456789abcdef" * 4,
+                "TRUSTED_HOSTS": "pos.example.invalid,localhost,127.0.0.1", **cambios}
+
     def test_defaults_desarrollo_sin_debug_y_base_correcta(self):
         configuracion = cargar_configuracion({})
         self.assertEqual(configuracion["APP_ENV"], "development")
@@ -35,11 +39,36 @@ class ConfiguracionTests(unittest.TestCase):
                 cargar_configuracion(entorno)
 
     def test_produccion_usa_clave_y_cookies_secure_sin_debug(self):
-        configuracion = cargar_configuracion({"APP_ENV": "production", "SECRET_KEY": "clave-ficticia-para-pruebas"})
-        self.assertEqual(configuracion["SECRET_KEY"], "clave-ficticia-para-pruebas")
+        configuracion = cargar_configuracion(self.produccion())
+        self.assertEqual(configuracion["SECRET_KEY"], self.produccion()["SECRET_KEY"])
         self.assertIs(configuracion["DEBUG"], False)
         self.assertIs(configuracion["SESSION_COOKIE_SECURE"], True)
         self.assertIs(configuracion["REMEMBER_COOKIE_SECURE"], True)
+
+    def test_produccion_rechaza_claves_debiles_cookies_http_y_hosts_vacios(self):
+        for cambios in ({"SECRET_KEY": "a" * 64}, {"SECRET_KEY": "dev-only-" + "0123456789abcdef" * 4},
+                        {"SECRET_KEY": "muy-corta"}, {"SESSION_COOKIE_SECURE": "false"},
+                        {"TRUSTED_HOSTS": ""}):
+            with self.subTest(cambios=cambios), self.assertRaises(ValueError):
+                cargar_configuracion(self.produccion(**cambios))
+
+    def test_hosts_validos_y_rechazo_de_urls_y_comodines(self):
+        self.assertEqual(cargar_configuracion(self.produccion())["TRUSTED_HOSTS"],
+                         ["pos.example.invalid", "localhost", "127.0.0.1"])
+        for hosts in ("https://pos.invalid", "*", "pos.invalid:443", "pos.invalid/path", "dos hosts", "a..invalid"):
+            with self.subTest(hosts=hosts), self.assertRaisesRegex(ValueError, "TRUSTED_HOSTS"):
+                cargar_configuracion({"TRUSTED_HOSTS": hosts})
+
+    def test_ssl_y_timeout_postgresql(self):
+        opciones = cargar_configuracion({"DB_SSLMODE": "verify-full", "DB_SSLROOTCERT": "/certs/ca.pem",
+                                         "DB_CONNECT_TIMEOUT": "9"})["SQLALCHEMY_ENGINE_OPTIONS"]["connect_args"]
+        self.assertEqual(opciones["sslmode"], "verify-full")
+        self.assertEqual(opciones["sslrootcert"], "/certs/ca.pem")
+        self.assertEqual(opciones["connect_timeout"], 9)
+        for cambios in ({"DB_SSLMODE": "inventado"}, {"DB_CONNECT_TIMEOUT": "0"},
+                        {"DB_CONNECT_TIMEOUT": "121"}, {"DB_CONNECT_TIMEOUT": "texto"}):
+            with self.subTest(cambios=cambios), self.assertRaises(ValueError):
+                cargar_configuracion(cambios)
 
     def test_produccion_rechaza_debug_habilitado(self):
         for valor in ("true", "1", "YES", " on "):

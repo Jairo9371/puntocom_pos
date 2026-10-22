@@ -1,0 +1,112 @@
+name: puntocom
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    image: postgres:18-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-puntocom_pos}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD}
+      TZ: America/Guatemala
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    networks: [database]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U postgres -d "$${POSTGRES_DB}"']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: 1g
+    logging: *logging
+
+  app:
+    build: .
+    restart: unless-stopped
+    init: true
+    environment: &app-environment
+      APP_ENV: production
+      APP_DEBUG: "false"
+      SESSION_COOKIE_SECURE: "true"
+      TRUSTED_HOSTS: ${POS_DOMAIN:?Define POS_DOMAIN},localhost,127.0.0.1
+      SECRET_KEY: ${SECRET_KEY:?Define SECRET_KEY}
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-puntocom_pos}
+      DB_USER: puntocom_app
+      DB_PASSWORD: ${APP_DB_PASSWORD:?Define APP_DB_PASSWORD}
+      DB_SSLMODE: disable
+      DB_CONNECT_TIMEOUT: "5"
+      WEB_WORKERS: ${WEB_WORKERS:-2}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [proxy, database]
+    read_only: true
+    tmpfs: [/tmp:size=64m,mode=1777]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=7).close()"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    mem_limit: 768m
+    pids_limit: 100
+    logging: *logging
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      POS_DOMAIN: ${POS_DOMAIN:?Define POS_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?Define ACME_EMAIL}
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./deployment/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [public, proxy]
+    depends_on: [app]
+    mem_limit: 256m
+    logging: *logging
+
+  # Perfil explícito de administración: nunca ejecuta migraciones al arrancar web.
+  maintenance:
+    profiles: [maintenance]
+    build:
+      context: .
+      dockerfile: deployment/Dockerfile.maintenance
+    environment:
+      <<: *app-environment
+      DB_USER: postgres
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Define APP_DB_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [database]
+    volumes:
+      - ${BACKUP_DIR:?Define BACKUP_DIR}:/backups
+    entrypoint: []
+    command: [python, -m, deployment.respaldos, --help]
+    logging: *logging
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  public:
+  proxy:
+    internal: true
+  database:
+    internal: true

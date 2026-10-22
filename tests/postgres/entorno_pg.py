@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 TABLAS = (
     'rol', 'usuario', 'turno_caja', 'movimiento_caja', 'cliente', 'categoria',
     'producto', 'proveedor', 'venta', 'detalle_venta', 'compra', 'detalle_compra',
-    'movimiento_inventario', 'solicitud_ajuste',
+    'movimiento_inventario', 'solicitud_ajuste', 'pago_compra',
 )
 HASH_PRUEBA = generate_password_hash('PruebaPostgres2026!')
 
@@ -137,8 +137,8 @@ class BaseTemporalPostgres:
                     raise RuntimeError('Se rechazó un motor que no apunta a la base temporal.')
                 with self.engine.begin() as conn:
                     conn.exec_driver_sql((ROOT / 'sql' / '01_esquema.sql').read_text(encoding='utf-8-sig'))
-                from migraciones import aplicar_migracion_roles
-                aplicar_migracion_roles(self.engine)
+                from migraciones import aplicar_migraciones_operacion
+                aplicar_migraciones_operacion(self.engine)
             return self
         except BaseException:
             self.__exit__(None, None, None)

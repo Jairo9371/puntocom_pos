@@ -1,0 +1,24 @@
+# Restricciones de dependencias validadas en el entorno local, 2026-10-20.
+# Instalar con: pip install -r requirements.txt -c requirements.lock
+Flask==3.1.3
+Flask-SQLAlchemy==3.1.1
+Flask-Login==0.6.3
+Flask-WTF==1.3.0
+python-dotenv==1.2.4
+psycopg2-binary==2.9.13
+Werkzeug==3.1.9
+reportlab==4.5.1
+openpyxl==3.1.5
+tzdata==2026.5
+Jinja2==3.1.6
+MarkupSafe==3.0.4
+SQLAlchemy==2.1.4
+WTForms==3.2.2
+blinker==1.9.0
+charset-normalizer==3.5.2
+click==8.5.0
+et_xmlfile==2.0.0
+itsdangerous==2.2.0
+pillow==12.3.0
+typing_extensions==4.16.0
+gunicorn==26.2.0

@@ -12,7 +12,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ventas_servicio import registrar_venta
+from ventas_servicio import IdempotenciaError, anular_venta, registrar_venta, resolver_pago
 
 
 class SessionSQLite:
@@ -24,6 +24,10 @@ class SessionSQLite:
 
     def execute(self, statement, params=None):
         sql = str(statement).replace("FOR SHARE OF u", "").replace(" FOR SHARE", "").replace(" FOR UPDATE", "")
+        if 'pg_advisory_xact_lock' in sql:
+            # Solo PostgreSQL prueba la exclusión real; aquí no hay concurrencia.
+            return self.session.execute(text('SELECT 1'))
+        sql = sql.replace(' AS JSONB', ' AS TEXT')
         params = {
             clave: str(valor) if isinstance(valor, Decimal) else valor
             for clave, valor in (params or {}).items()
@@ -40,7 +44,8 @@ ESQUEMA = (
     """CREATE TABLE turno_caja (
         id_turno INTEGER PRIMARY KEY,
         id_usuario INTEGER NOT NULL REFERENCES usuario(id_usuario),
-        estado TEXT NOT NULL
+        estado TEXT NOT NULL,
+        fondo_inicial NUMERIC NOT NULL DEFAULT 0
     )""",
     """CREATE TABLE producto (
         id_producto INTEGER PRIMARY KEY,
@@ -57,7 +62,22 @@ ESQUEMA = (
         numero_ticket TEXT UNIQUE NOT NULL,
         metodo_pago TEXT NOT NULL,
         estado TEXT NOT NULL,
-        total NUMERIC NOT NULL CHECK(total >= 0)
+        total NUMERIC NOT NULL CHECK(total >= 0),
+        estado_pago TEXT NOT NULL DEFAULT 'CONFIRMADO',
+        clave_operacion TEXT,
+        hash_solicitud TEXT,
+        resultado_cobro TEXT,
+        recibido NUMERIC NOT NULL DEFAULT 0,
+        cambio NUMERIC NOT NULL DEFAULT 0,
+        id_confirmador INTEGER REFERENCES usuario(id_usuario),
+        fecha_confirmacion TEXT,
+        id_resolutor INTEGER REFERENCES usuario(id_usuario),
+        fecha_resolucion TEXT,
+        motivo_pago TEXT,
+        id_anulador INTEGER REFERENCES usuario(id_usuario),
+        fecha_anulacion TEXT,
+        motivo_anulacion TEXT,
+        UNIQUE(id_usuario,clave_operacion)
     )""",
     """CREATE TABLE detalle_venta (
         id_detalle_venta INTEGER PRIMARY KEY,
@@ -105,7 +125,7 @@ class RegistrarVentaTest(unittest.TestCase):
             connection.execute(text("INSERT INTO rol VALUES (1, 'Administrador')"))
             connection.execute(text("INSERT INTO usuario(id_usuario) VALUES (7), (8)"))
             connection.execute(text("INSERT INTO cliente(id_cliente) VALUES (1)"))
-            connection.execute(text("INSERT INTO turno_caja VALUES (1, 7, 'ABIERTO')"))
+            connection.execute(text("INSERT INTO turno_caja(id_turno,id_usuario,estado) VALUES (1, 7, 'ABIERTO')"))
             connection.execute(text("""INSERT INTO producto VALUES
                 (1, 'Cuaderno', 12.50, 7.25, TRUE),
                 (2, 'Lápiz', 3.75, 1.10, TRUE),
@@ -341,6 +361,147 @@ class RegistrarVentaTest(unittest.TestCase):
         self.assertEqual(self.session.execute(text("SELECT COUNT(*) FROM venta")).scalar_one(), 1)
         self.session.rollback()
         self.assert_sin_venta()
+
+    def test_reintento_devuelve_respuesta_original_aun_con_turno_cerrado(self):
+        self.solicitud['clave_operacion'] = 'a' * 32
+        resultado = self.cobrar()
+        with self.session.begin():
+            self.session.execute(text("UPDATE turno_caja SET estado='CERRADO'"))
+        self.assertEqual(self.cobrar(copy.deepcopy(self.solicitud)), resultado)
+        self.assertEqual(self.escalar('SELECT COUNT(*) FROM venta'), 1)
+        self.assertEqual(self.escalar('SELECT COUNT(*) FROM detalle_venta'), 2)
+        self.assertEqual(self.escalar('SELECT COUNT(*) FROM movimiento_caja'), 1)
+        self.assertEqual(self.escalar("SELECT COUNT(*) FROM movimiento_inventario WHERE tipo='SALIDA'"), 2)
+
+    def test_clave_reutilizada_con_payload_distinto_se_rechaza(self):
+        self.solicitud['clave_operacion'] = 'b' * 32
+        original = self.cobrar()
+        cambiada = copy.deepcopy(self.solicitud)
+        cambiada['recibido'] = '200.00'
+        with self.assertRaises(IdempotenciaError):
+            self.cobrar(cambiada)
+        self.assertEqual(self.cobrar(), original)
+        self.assertEqual(self.escalar('SELECT COUNT(*) FROM venta'), 1)
+
+    def test_rollback_no_consume_clave(self):
+        self.solicitud['clave_operacion'] = 'c' * 32
+        with self.assertRaisesRegex(RuntimeError, 'Fallo externo'):
+            with self.session.begin():
+                registrar_venta(self.adaptada, self.solicitud, 7)
+                raise RuntimeError('Fallo externo')
+        self.assert_sin_venta()
+        self.assertEqual(self.cobrar()['total'], '35.00')
+
+    def pendiente(self):
+        self.solicitud.update(metodo='TRANSFERENCIA', estado_pago='PENDIENTE', recibido=0,
+                              clave_operacion='p' * 32)
+        return self.cobrar()
+
+    def resolver(self, resultado, pago, motivo='', actor_id=7):
+        with self.session.begin():
+            return resolver_pago(self.adaptada, resultado['id_venta'], actor_id, pago, motivo)
+
+    def test_pendiente_no_mueve_stock_ni_caja_y_confirmacion_es_unica(self):
+        original = self.pendiente()
+        self.assertEqual(original['estado_pago'], 'PENDIENTE')
+        self.assertEqual(self.escalar("SELECT COUNT(*) FROM venta WHERE estado='COMPLETADA'"), 0)
+        self.assertEqual(self.escalar('SELECT COUNT(*) FROM movimiento_caja'), 0)
+        self.assertEqual(self.escalar("SELECT COUNT(*) FROM movimiento_inventario WHERE tipo='SALIDA'"), 0)
+        with self.session.begin():
+            self.session.execute(text('UPDATE producto SET costo=8,precio_venta=99 WHERE id_producto=1'))
+        confirmada = self.resolver(original, 'CONFIRMADO')
+        self.assertEqual(self.resolver(original, 'CONFIRMADO'), confirmada)
+        self.assertEqual(confirmada['estado'], 'COMPLETADA')
+        self.assertEqual(self.escalar("SELECT COUNT(*) FROM movimiento_inventario WHERE tipo='SALIDA'"), 2)
+        self.assertEqual(self.escalar('SELECT COUNT(*) FROM movimiento_caja'), 0)
+        self.assertEqual(self.escalar('SELECT total FROM venta'), 35)
+        self.assertEqual(Decimal(str(self.escalar('SELECT precio_unitario FROM detalle_venta WHERE id_producto=1'))), Decimal('12.5'))
+        self.assertEqual(self.escalar('SELECT costo_unitario_historico FROM detalle_venta WHERE id_producto=1'), 8)
+        # La confirmación posterior no cambia la respuesta persistida del alta.
+        self.assertEqual(self.cobrar(), original)
+        with self.assertRaisesRegex(ValueError, 'definitivo'):
+            self.resolver(original, 'FALLIDO', 'No se recibió')
+
+    def test_fallido_no_mueve_stock_ni_puede_confirmarse_despues(self):
+        resultado = self.pendiente()
+        with self.assertRaisesRegex(ValueError, 'motivo'):
+            self.resolver(resultado, 'FALLIDO')
+        final = self.resolver(resultado, 'FALLIDO', 'Transferencia rechazada')
+        self.assertEqual(final['estado'], 'FALLIDA')
+        self.assertEqual(self.resolver(resultado, 'FALLIDO', 'Reintento'), final)
+        self.assertEqual(self.escalar('SELECT motivo_pago FROM venta'), 'Transferencia rechazada')
+        with self.assertRaisesRegex(ValueError, 'definitivo'):
+            self.resolver(resultado, 'CONFIRMADO')
+        self.assertEqual(self.escalar("SELECT COUNT(*) FROM movimiento_inventario WHERE tipo='SALIDA'"), 0)
+
+    def test_efectivo_no_admite_pendiente_o_fallido_al_crear(self):
+        for estado in ('PENDIENTE', 'FALLIDO', '', None):
+            with self.subTest(estado=estado), self.assertRaises(ValueError):
+                self.cobrar({**self.solicitud, 'estado_pago': estado})
+        self.assert_sin_venta()
+
+    def test_confirmar_revalida_stock_turno_y_permisos(self):
+        resultado = self.pendiente()
+        with self.session.begin():
+            self.session.execute(text("UPDATE turno_caja SET estado='CERRADO'"))
+        with self.assertRaisesRegex(ValueError, 'turno original'):
+            self.resolver(resultado, 'CONFIRMADO')
+        with self.session.begin():
+            self.session.execute(text("UPDATE turno_caja SET estado='ABIERTO'"))
+            self.session.execute(text("INSERT INTO movimiento_inventario(id_producto,tipo,cantidad,costo_unitario) VALUES(2,'SALIDA',19,1.1)"))
+        with self.assertRaisesRegex(ValueError, 'Stock insuficiente'):
+            self.resolver(resultado, 'CONFIRMADO')
+        # La salida previa de producto 1 durante el intento se revierte.
+        self.assertEqual(self.escalar('SELECT existencia_actual FROM vista_inventario WHERE id_producto=1'), 10)
+        self.assertEqual(self.escalar('SELECT estado_pago FROM venta'), 'PENDIENTE')
+        with self.session.begin():
+            self.session.execute(text('UPDATE usuario SET estado=FALSE WHERE id_usuario=7'))
+        with self.assertRaises(PermissionError):
+            self.resolver(resultado, 'FALLIDO', 'No acreditado')
+
+    def test_otro_cajero_no_puede_resolver_pendiente_y_admin_si(self):
+        resultado = self.pendiente()
+        with self.session.begin():
+            self.session.execute(text("INSERT INTO rol VALUES(2,'Cajero')"))
+            self.session.execute(text('UPDATE usuario SET id_rol=2 WHERE id_usuario=8'))
+        with self.assertRaises(PermissionError):
+            self.resolver(resultado, 'CONFIRMADO', actor_id=8)
+        with self.session.begin():
+            self.session.execute(text('UPDATE usuario SET id_rol=1 WHERE id_usuario=8'))
+        self.assertEqual(self.resolver(resultado, 'CONFIRMADO', actor_id=8)['estado_pago'], 'CONFIRMADO')
+
+    def test_anulacion_conserva_historial_pago_y_respuesta_original(self):
+        self.solicitud['clave_operacion'] = 'n' * 32
+        resultado = self.cobrar()
+        with self.session.begin():
+            anular_venta(self.adaptada, resultado['id_venta'], 7, 'Cambio solicitado')
+        self.assertEqual(self.escalar('SELECT estado_pago FROM venta'), 'CONFIRMADO')
+        self.assertEqual(self.escalar('SELECT estado FROM venta'), 'ANULADA')
+        self.assertEqual(self.cobrar(), resultado)
+        with self.assertRaisesRegex(ValueError, 'anulada'):
+            self.resolver(resultado, 'CONFIRMADO')
+
+    def test_claves_invalidas_no_crean_venta(self):
+        for clave in ('', 'corta', 'a' * 101, 123, 'x' * 15 + '!'):
+            with self.subTest(clave=clave), self.assertRaises(ValueError):
+                self.cobrar({**self.solicitud, 'clave_operacion': clave})
+        self.assert_sin_venta()
+
+    def test_ids_y_cantidades_fuera_de_integer32_se_rechazan_sin_escrituras(self):
+        solicitudes = [dict(self.solicitud, cliente_id=2147483648),
+                       dict(self.solicitud, items=[{'id': 2147483648, 'cantidad': 1}]),
+                       dict(self.solicitud, items=[{'id': 1, 'cantidad': 2147483648}])]
+        for solicitud in solicitudes:
+            with self.subTest(solicitud=solicitud), self.assertRaises(ValueError):
+                self.cobrar(solicitud)
+        self.assert_sin_venta()
+
+    def test_motivo_pago_json_no_textual_se_rechaza(self):
+        venta = self.pendiente()
+        for motivo in (123, True, [], {}):
+            with self.subTest(motivo=motivo), self.assertRaises(ValueError):
+                self.resolver(venta, 'FALLIDO', motivo)
+        self.assertEqual(self.escalar('SELECT estado_pago FROM venta'), 'PENDIENTE')
 
 
 if __name__ == "__main__":

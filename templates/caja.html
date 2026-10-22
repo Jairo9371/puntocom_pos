@@ -70,7 +70,9 @@
           step=".01"
           class="form-control mb-2"
           required
-        /><button
+        /><label class="form-label">Motivo del faltante o sobrante</label>
+        <textarea name="motivo_diferencia" class="form-control mb-2" maxlength="500"
+          placeholder="Obligatorio si el contado difiere del esperado"></textarea><button
           class="btn btn-outline-danger"
           onclick="return confirm('¿Cerrar la caja?');"
         >
@@ -123,7 +125,10 @@
               <th>Apertura</th>
               <th>Cierre</th>
               <th>Fondo</th>
+              <th>Esperado al cierre</th>
               <th>Contado</th>
+              <th>Diferencia</th>
+              <th>Motivo</th>
               <th>Estado</th>
             </tr>
           </thead>
@@ -135,10 +140,13 @@
               <td>{{t.apertura|fecha}}</td>
               <td>{{t.cierre|fecha}}</td>
               <td>{{t.fondo_inicial|q}}</td>
+              <td>{{ t.efectivo_esperado|q if t.efectivo_esperado is defined and t.efectivo_esperado is not none else 'Sin registro' }}</td>
               <td>
                 {{t.efectivo_contado|q if t.efectivo_contado is not none else
                 '-'}}
               </td>
+              <td>{{ t.diferencia|q if t.diferencia is defined and t.diferencia is not none else 'Sin registro' }}</td>
+              <td>{{ t.motivo_diferencia or '-' }}</td>
               <td>{{t.estado}}</td>
             </tr>
             {% endfor %}

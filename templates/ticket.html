@@ -18,12 +18,18 @@ content %}
   </p>
   <hr />
   {% if venta.estado == 'ANULADA' %}<p class="text-center fw-bold">VENTA ANULADA</p>{% endif %}
+  {% if venta.estado_pago == 'PENDIENTE' %}
+  <p class="text-center fw-bold">PAGO PENDIENTE · PRODUCTOS SIN ENTREGAR</p>
+  {% elif venta.estado_pago == 'FALLIDO' %}
+  <p class="text-center fw-bold">PAGO FALLIDO · VENTA SIN COMPLETAR</p>
+  {% endif %}
   <p>
     <b>{{venta.numero_ticket}}</b><br />{{venta.fecha_hora|fecha}}<br />Cajero:
     {{venta.cajero}}<br />Cliente: {{venta.nombre_razon_social}}<br />NIT/DPI:
     {{venta.nit_dpi or 'CF'}}
   </p>
   <hr />
+  {% set totales_ticket = namespace(subtotal=0, descuento=0) %}
   <table class="w-100">
     <thead>
       <tr>
@@ -34,9 +40,12 @@ content %}
     </thead>
     <tbody>
       {% for d in detalle %}
+      {% set totales_ticket.subtotal = totales_ticket.subtotal + d.precio_unitario * d.cantidad %}
+      {% set totales_ticket.descuento = totales_ticket.descuento + d.descuento %}
       <tr>
         <td>
           {{d.nombre}}<small class="d-block">{{d.precio_unitario|q}} c/u</small>
+          {% if d.descuento > 0 %}<small class="d-block">Descuento: -{{d.descuento|q}}</small>{% endif %}
         </td>
         <td>{{d.cantidad}}</td>
         <td>{{(d.precio_unitario*d.cantidad-d.descuento)|q}}</td>
@@ -45,10 +54,23 @@ content %}
     </tbody>
   </table>
   <hr />
+  {% if totales_ticket.descuento > 0 %}
+  <div class="d-flex justify-content-between">
+    <span>Subtotal</span><span>{{totales_ticket.subtotal|q}}</span>
+  </div>
+  <div class="d-flex justify-content-between">
+    <span>Descuento total</span><span>-{{totales_ticket.descuento|q}}</span>
+  </div>
+  {% endif %}
   <div class="d-flex justify-content-between">
     <b>TOTAL</b><b>{{venta.total|q}}</b>
   </div>
   <p>Método: {{venta.metodo_pago}}</p>
+  <p>Pago: {{ venta.estado_pago|default('CONFIRMADO') }}{% if venta.metodo_pago != 'EFECTIVO' and venta.estado_pago == 'CONFIRMADO' %} (registro manual){% endif %}</p>
+  {% if venta.motivo_pago %}<p>Motivo: {{ venta.motivo_pago }}</p>{% endif %}
+  {% if venta.metodo_pago == 'EFECTIVO' and venta.resultado_cobro %}
+  <p>Recibido: {{ venta.recibido|q }}<br>Cambio: {{ venta.cambio|q }}</p>
+  {% endif %}
   <p class="text-center mt-4">¡Gracias por su compra!</p>
 </div>
 {% endblock %}

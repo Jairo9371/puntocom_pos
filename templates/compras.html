@@ -1,101 +1,132 @@
-{% extends 'base.html' %}{% block crumb %}Compras{% endblock %}{% block content
-%}
+{% extends 'base.html' %}
+{% block crumb %}Compras{% endblock %}
+{% block content %}
 <div class="page-header">
   <h2>Compras a proveedores</h2>
-  <button
-    class="btn btn-primary"
-    data-bs-toggle="modal"
-    data-bs-target="#compra"
-  >
-    + Registrar compra
-  </button>
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#compra">+ Registrar compra</button>
 </div>
 <div class="panel table-responsive">
   <table class="table">
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>Fecha</th>
-        <th>Proveedor</th>
-        <th>Factura</th>
-        <th>Método</th>
-        <th>Total</th>
-      </tr>
-    </thead>
+    <thead><tr><th>ID</th><th>Fecha</th><th>Proveedor</th><th>Factura</th><th>Método</th><th>Total</th><th>Pendiente</th><th>Detalle</th><th>Abono</th></tr></thead>
     <tbody>
       {% for c in data %}
       <tr>
-        <td>{{c.id_compra}}</td>
-        <td>{{c.fecha|fecha}}</td>
-        <td>{{c.razon_social}}</td>
-        <td>{{c.numero_factura or '-'}}</td>
-        <td>{{c.metodo_pago}}</td>
-        <td>{{c.total|q}}</td>
+        <td>{{c.id_compra}}</td><td>{{c.fecha|fecha}}</td><td>{{c.razon_social}}</td>
+        <td>{{c.numero_factura or '-'}}</td><td>{{c.metodo_pago}}</td><td>{{c.total|q}}</td>
+        <td>{{c.saldo_pendiente|q if c.saldo_pendiente is defined and c.saldo_pendiente is not none else 'Sin conciliar'}}</td>
+        <td><button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#detalle{{c.id_compra}}">Ver detalle</button></td>
+        <td>{% if c.saldo_pendiente is defined and c.saldo_pendiente is not none and c.saldo_pendiente > 0 %}
+          <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#abono{{c.id_compra}}">Registrar abono</button>
+          {% else %}—{% endif %}
+        </td>
       </tr>
-      {% else %}
-      <tr>
-        <td colspan="6">Sin compras.</td>
-      </tr>
-      {% endfor %}
+      {% else %}<tr><td colspan="9">Sin compras.</td></tr>{% endfor %}
     </tbody>
   </table>
+  <p class="small text-muted mb-0">Las compras históricas sin saldo registrado requieren conciliación. Los pagos registrados aquí no verifican transferencias o cobros bancarios.</p>
 </div>
-<div class="modal fade" id="compra">
-  <div class="modal-dialog">
-    <form
-      method="post"
-      action="{{url_for('compra_nueva')}}"
-      class="modal-content"
-    >
-      <input type="hidden" name="csrf_token" value="{{csrf_token()}}" />
-      <div class="modal-header">
-        <h5>Nueva compra (un artículo por registro)</h5>
-        <button
-          class="btn-close"
-          type="button"
-          data-bs-dismiss="modal"
-        ></button>
-      </div>
-      <div class="modal-body">
-        <label class="form-label">Proveedor</label
-        ><select name="id_proveedor" class="form-select mb-3" required>
-          {% for x in proveedores %}
-          <option value="{{x.id_proveedor}}">{{x.razon_social}}</option>
-          {% endfor %}</select
-        ><label class="form-label">Producto</label
-        ><select class="form-select mb-3" name="id_producto" required>
-          {% for x in productos %}
-          <option value="{{x.id_producto}}">{{x.codigo}} - {{x.nombre}}</option>
-          {% endfor %}</select
-        ><label class="form-label">Cantidad</label
-        ><input
-          class="form-control mb-3"
-          type="number"
-          min="1"
-          name="cantidad"
-          required
-        /><label class="form-label">Costo unitario Q</label
-        ><input
-          class="form-control mb-3"
-          type="number"
-          min="0"
-          step=".01"
-          name="costo_unitario"
-          required
-        /><label class="form-label">Número factura</label
-        ><input class="form-control mb-3" name="numero_factura" /><label
-          class="form-label"
-          >Método de pago</label
-        ><select name="metodo_pago" class="form-select">
-          {% for metodo in metodos_pago %}
-          <option value="{{ metodo }}">{{ metodo }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-primary">Confirmar compra</button>
-      </div>
-    </form>
-  </div>
+{% for c in data %}
+<div class="modal fade" id="detalle{{c.id_compra}}" tabindex="-1">
+  <div class="modal-dialog modal-lg"><div class="modal-content">
+    <div class="modal-header"><h5>Compra #{{c.id_compra}} · {{c.razon_social}}</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <h6>Artículos recibidos</h6>
+      <div class="table-responsive"><table class="table">
+        <thead><tr><th>Producto</th><th>Cantidad</th><th>Costo unitario</th><th>Subtotal</th></tr></thead>
+        <tbody>{% for d in detalles|default([])|selectattr('id_compra','equalto',c.id_compra) %}
+          <tr><td>{{d.codigo}} · {{d.nombre}}</td><td>{{d.cantidad}}</td><td>{{d.costo_unitario|q}}</td><td>{{(d.cantidad*d.costo_unitario)|q}}</td></tr>
+          {% else %}<tr><td colspan="4">Sin artículos registrados.</td></tr>{% endfor %}</tbody>
+      </table></div>
+      <p>Total de compra: <b>{{c.total|q}}</b></p>
+      <h6>Pagos registrados</h6>
+      <div class="table-responsive"><table class="table">
+        <thead><tr><th>Fecha</th><th>Usuario</th><th>Método</th><th>Origen</th><th>Monto</th></tr></thead>
+        <tbody>{% for p in pagos|default([])|selectattr('id_compra','equalto',c.id_compra) %}
+          <tr><td>{{p.fecha|fecha}}</td><td>{{p.usuario}}</td><td>{{p.metodo_pago}}</td>
+            <td>{% if p.origen_efectivo == 'CAJA' %}Caja · movimiento #{{p.id_movimiento_caja}}{% elif p.origen_efectivo == 'EXTERNO' %}Fondos externos{% else %}—{% endif %}</td><td>{{p.monto|q}}</td></tr>
+          {% else %}<tr><td colspan="5">Sin pagos registrados.</td></tr>{% endfor %}</tbody>
+      </table></div>
+    </div>
+  </div></div>
 </div>
+{% endfor %}
+{% for c in data if c.saldo_pendiente is defined and c.saldo_pendiente is not none and c.saldo_pendiente > 0 %}
+<div class="modal fade" id="abono{{c.id_compra}}" tabindex="-1">
+  <div class="modal-dialog"><form method="post" action="{{url_for('compra_abono',cid=c.id_compra)}}" class="modal-content">
+    <input type="hidden" name="csrf_token" value="{{csrf_token()}}" />
+    <input type="hidden" name="clave_operacion" value="{{clave_abono}}-{{c.id_compra}}" />
+    <div class="modal-header"><h5>Abono a compra #{{c.id_compra}}</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <p>Saldo pendiente: <b>{{c.saldo_pendiente|q}}</b></p>
+      <label class="form-label">Monto Q</label><input class="form-control mb-3" name="monto" type="number" min=".01" max="{{c.saldo_pendiente}}" step=".01" required />
+      <label class="form-label">Método de pago</label><select name="metodo_pago" class="form-select mb-3" data-metodo-pago>
+        <option>EFECTIVO</option><option>TRANSFERENCIA</option><option>TARJETA</option>
+      </select>
+      <div data-origen-efectivo><label class="form-label">Origen del efectivo</label><select name="origen_efectivo" class="form-select" required>
+        <option value="">Seleccionar origen</option><option value="EXTERNO">Fondos externos</option><option value="CAJA">Mi caja abierta</option>
+      </select></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-primary">Guardar abono</button></div>
+  </form></div>
+</div>
+{% endfor %}
+<div class="modal fade" id="compra" tabindex="-1">
+  <div class="modal-dialog modal-lg"><form method="post" action="{{url_for('compra_nueva')}}" class="modal-content" id="form-compra">
+    <input type="hidden" name="csrf_token" value="{{csrf_token()}}" />
+    <input type="hidden" name="clave_operacion" value="{{clave_operacion}}" />
+    <div class="modal-header"><h5>Nueva compra</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <label class="form-label">Proveedor</label><select name="id_proveedor" class="form-select mb-3" required>
+        {% for x in proveedores %}<option value="{{x.id_proveedor}}">{{x.razon_social}}</option>{% endfor %}
+      </select>
+      <div class="table-responsive"><table class="table align-middle">
+        <thead><tr><th>Producto</th><th>Cantidad</th><th>Costo unitario Q</th><th></th></tr></thead>
+        <tbody id="articulos-compra"><tr data-articulo>
+          <td><select class="form-select" name="id_producto" required>
+            {% for x in productos %}<option value="{{x.id_producto}}">{{x.codigo}} - {{x.nombre}}</option>{% endfor %}
+          </select></td>
+          <td><input class="form-control" type="number" min="1" max="2147483647" name="cantidad" value="1" required /></td>
+          <td><input class="form-control" type="number" min="0" max="9999999999.99" step=".01" name="costo_unitario" required /></td>
+          <td><button class="btn btn-outline-danger btn-sm" type="button" data-quitar-articulo aria-label="Quitar artículo">Quitar</button></td>
+        </tr></tbody>
+      </table></div>
+      <button class="btn btn-outline-secondary btn-sm mb-3" type="button" id="agregar-articulo">+ Agregar artículo</button>
+      <label class="form-label d-block">Número factura</label><input class="form-control mb-3" name="numero_factura" maxlength="50" />
+      <label class="form-label">Método de pago</label><select name="metodo_pago" class="form-select mb-3" data-metodo-pago>
+        {% for metodo in metodos_pago %}<option value="{{metodo}}">{{metodo}}</option>{% endfor %}
+      </select>
+      <div data-origen-efectivo><label class="form-label">Origen del efectivo</label><select name="origen_efectivo" class="form-select mb-3" required>
+        <option value="">Seleccionar origen</option><option value="EXTERNO">Fondos externos</option><option value="CAJA">Mi caja abierta</option>
+      </select></div>
+      <p class="small text-muted">Una compra a crédito conserva el total pendiente para registrar abonos después. Los pagos desde caja descuentan efectivo de tu propio turno.</p>
+    </div>
+    <div class="modal-footer"><button class="btn btn-primary">Confirmar compra</button></div>
+  </form></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.querySelectorAll('[data-metodo-pago]').forEach(select => {
+  const origen = select.closest('form').querySelector('[data-origen-efectivo]');
+  const actualizar = () => {
+    const efectivo = select.value === 'EFECTIVO';
+    origen.hidden = !efectivo;
+    origen.querySelector('select').required = efectivo;
+  };
+  select.addEventListener('change', actualizar);
+  actualizar();
+});
+const articulos = document.getElementById('articulos-compra');
+document.getElementById('agregar-articulo').addEventListener('click', () => {
+  if (articulos.children.length >= 80) return;
+  const nuevo = articulos.firstElementChild.cloneNode(true);
+  nuevo.querySelector('[name="cantidad"]').value = '1';
+  nuevo.querySelector('[name="costo_unitario"]').value = '';
+  articulos.appendChild(nuevo);
+});
+articulos.addEventListener('click', event => {
+  if (event.target.closest('[data-quitar-articulo]') && articulos.children.length > 1)
+    event.target.closest('[data-articulo]').remove();
+});
+</script>
 {% endblock %}
