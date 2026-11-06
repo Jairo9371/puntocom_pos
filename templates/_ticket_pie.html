@@ -1,0 +1,4 @@
+{% set datos_negocio = negocio|default({}) %}
+{% if datos_negocio.get('mensaje_ticket', '¡Gracias por su compra!') %}
+<p class="text-center mt-4 ticket-mensaje">{{ datos_negocio.get('mensaje_ticket', '¡Gracias por su compra!') }}</p>
+{% endif %}

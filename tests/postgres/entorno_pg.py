@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 TABLAS = (
     'rol', 'usuario', 'turno_caja', 'movimiento_caja', 'cliente', 'categoria',
     'producto', 'proveedor', 'venta', 'detalle_venta', 'compra', 'detalle_compra',
-    'movimiento_inventario', 'solicitud_ajuste', 'pago_compra',
+    'movimiento_inventario', 'solicitud_ajuste', 'pago_compra', 'configuracion_negocio',
 )
 HASH_PRUEBA = generate_password_hash('PruebaPostgres2026!')
 

@@ -18,7 +18,7 @@ Conserva el `.dump` y su `.dump.manifest.json` con acceso privado. La verificaci
 compara columnas y conteos del mismo snapshot exportado y elimina únicamente su
 base temporal. Nunca restaura sobre la base del negocio.
 
-Las migraciones 04, 05 y 06 son aditivas e idempotentes. No ejecutes el esquema
+Las migraciones 04, 05, 06 y 07 son aditivas e idempotentes. La 07 guarda la configuración del negocio y el ancho del ticket. No ejecutes el esquema
 inicial sobre una base existente. Las ventas históricas conservan su estado y
 se consideran pagos registrados manualmente, sin inventar confirmaciones
 bancarias, fechas o responsables. Los arqueos anteriores conservan sus datos;

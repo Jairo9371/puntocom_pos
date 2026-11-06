@@ -70,8 +70,13 @@ def aplicar_migracion_caja_compras(engine):
     _aplicar_script(engine, '06_caja_compras.sql')
 
 
+def aplicar_migracion_configuracion(engine):
+    _aplicar_script(engine, '07_configuracion_negocio.sql')
+
+
 def aplicar_migraciones_operacion(engine):
     """Actualiza una instalación existente sin recrear su esquema ni sus datos."""
     aplicar_migracion_roles(engine)
     aplicar_migracion_pagos(engine)
     aplicar_migracion_caja_compras(engine)
+    aplicar_migracion_configuracion(engine)

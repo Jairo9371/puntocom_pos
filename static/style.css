@@ -221,7 +221,9 @@ body {
   font-weight: 800;
 }
 .ticket {
-  width: 80mm;
+  width: var(--ancho-ticket, 80mm);
+  max-width: 100%;
+  box-sizing: border-box;
   margin: 15px auto;
   background: white;
   padding: 10mm 5mm;
@@ -229,6 +231,11 @@ body {
   font-family: monospace;
   font-size: 11px;
   box-shadow: 0 2px 13px #ccc;
+  overflow-wrap: anywhere;
+}
+.ticket-direccion,
+.ticket-mensaje {
+  white-space: pre-line;
 }
 .ticket h3,
 .ticket > p:first-of-type {
@@ -291,7 +298,7 @@ body {
   .ticket {
     box-shadow: none;
     margin: 0 auto;
-    width: 80mm;
+    width: var(--ancho-ticket, 80mm);
     padding: 3mm;
   }
   .main {
@@ -299,6 +306,9 @@ body {
   }
   body {
     background: white;
+  }
+  @page {
+    margin: 0;
   }
 }
 

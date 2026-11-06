@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from configuracion import TZ, cargar_configuracion
+from configuracion_negocio import cargar_negocio, guardar_negocio
 from datos import db, one, rows, value
 from reportes_excel import generar_excel_ventas, resolver_rango_fechas
 from validaciones import entero, money, solo_letras, validar_correo, validar_datos_gestion
@@ -63,6 +64,7 @@ def salud_base():
         db.session.execute(text('SELECT efectivo_esperado,diferencia FROM turno_caja LIMIT 0'))
         db.session.execute(text('SELECT saldo_pendiente FROM compra LIMIT 0'))
         db.session.execute(text('SELECT id_pago_compra FROM pago_compra LIMIT 0'))
+        db.session.execute(text('SELECT nombre_comercial FROM configuracion_negocio LIMIT 0'))
         return jsonify(ok=True)
     except Exception:
         db.session.rollback()
@@ -580,7 +582,13 @@ def ticket(vid):
     columnas = 'd.*' if tiene_permiso('costos.ver') else 'd.cantidad,d.precio_unitario,d.descuento'
     detalle=rows(f'''SELECT {columnas},p.nombre FROM detalle_venta d JOIN producto p USING(id_producto)
                    WHERE d.id_venta=:id ORDER BY d.id_detalle_venta''',id=vid)
-    return render_template('ticket.html',venta=venta,detalle=detalle)
+    return render_template('ticket.html',venta=venta,detalle=detalle,negocio=cargar_negocio(db.session))
+
+
+@app.get('/configuracion/prueba-ticket')
+@permiso_requerido('configuracion.gestionar')
+def prueba_ticket():
+    return render_template('prueba_ticket.html',negocio=cargar_negocio(db.session))
 
 @app.get('/compras')
 @permiso_requerido('proveedores.gestionar')
@@ -844,10 +852,32 @@ def usuario_rol(uid):
     return redirect(url_for('usuarios'))
 
 
-@app.get('/configuracion')
+@app.route('/configuracion', methods=['GET', 'POST'])
 @permiso_requerido('configuracion.gestionar')
 def configuracion():
-    return render_template('message.html',titulo='Configuración',mensaje='Nombre comercial: PUNTO COM · Moneda: Quetzal (Q) · País: Guatemala. La edición de datos fiscales e impresora estará disponible en una siguiente versión.')
+    errores = []
+    if request.method == 'POST':
+        negocio = {campo: request.form.get(campo, '') for campo in
+                   ('nombre_comercial', 'giro', 'direccion', 'telefono', 'correo', 'nit', 'mensaje_ticket',
+                    'ancho_ticket')}
+        try:
+            guardar_negocio(db.session, negocio, int(current_user.id))
+            db.session.commit()
+            flash('Datos del negocio actualizados.', 'success')
+            return redirect(url_for('configuracion'))
+        except ValueError as error:
+            db.session.rollback()
+            errores.append(str(error))
+        except PermissionError:
+            db.session.rollback()
+            abort(403)
+        except Exception:
+            db.session.rollback()
+            app.logger.exception('No se pudo guardar la configuración del negocio.')
+            errores.append('No se pudieron guardar los cambios. Vuelve a intentarlo.')
+    else:
+        negocio = cargar_negocio(db.session)
+    return render_template('configuracion.html', negocio=negocio, errores=errores), (400 if errores else 200)
 
 @app.cli.command('crear-admin')
 def crear_admin():

@@ -4,4 +4,5 @@
 # Crear antes /srv/puntocom-backups modo 0700 y el archivo log modo 0600.
 # El proyecto de ejemplo está en /srv/puntocom_pos; ajustar ruta si corresponde.
 # Cada salida !=0 requiere alerta externa; este archivo solo configura ejecución.
-17 2 * * * root cd /srv/puntocom_pos && /usr/bin/docker compose --env-file deployment/.env run --rm -T maintenance python -m deployment.respaldos backup --directory /backups --verify-cleanup >> /var/log/puntocom-backup.log 2>&1
+# El runner tiene bloqueo entre contenedores y deja constancia de éxito en BACKUP_DIR.
+17 2 * * * root cd /srv/puntocom_pos && /usr/bin/docker compose --env-file deployment/.env run --rm -T maintenance python -m deployment.respaldo_diario --directory /backups >> /var/log/puntocom-backup.log 2>&1

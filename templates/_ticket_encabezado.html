@@ -1,0 +1,10 @@
+{% set datos_negocio = negocio|default({}) %}
+<h3>{{ datos_negocio.get('nombre_comercial', 'PUNTO COM') }}</h3>
+<p>
+  {% if datos_negocio.get('giro', 'Librería · Guatemala') %}{{ datos_negocio.get('giro', 'Librería · Guatemala') }}<br>{% endif %}
+  {% if datos_negocio.get('direccion') %}<span class="ticket-direccion">{{ datos_negocio.direccion }}</span><br>{% endif %}
+  {% if datos_negocio.get('telefono') %}Tel.: {{ datos_negocio.telefono }}<br>{% endif %}
+  {% if datos_negocio.get('correo') %}{{ datos_negocio.correo }}<br>{% endif %}
+  {% if datos_negocio.get('nit') %}NIT: {{ datos_negocio.nit }}<br>{% endif %}
+  Comprobante de venta<br><small>Este ticket no es factura electrónica FEL</small>
+</p>

@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block crumb %}Prueba de impresión{% endblock %}
+{% block content %}
+<div class="no-print mb-3">
+  <a class="btn btn-outline-secondary" href="{{ url_for('configuracion') }}">Volver a configuración</a>
+  <button type="button" class="btn btn-primary" onclick="window.print()">Imprimir prueba / Guardar PDF</button>
+  <p class="mt-3 mb-0">Selecciona papel de {{ negocio.ancho_ticket }} mm y escala del 100 %. Esta prueba no registra ventas ni movimientos.</p>
+</div>
+<div class="ticket" style="--ancho-ticket: {{ 58 if negocio.ancho_ticket|string == '58' else 80 }}mm;">
+  {% include '_ticket_encabezado.html' %}
+  <hr>
+  <p class="text-center fw-bold">PRUEBA DE IMPRESIÓN<br>SIN VALOR DE VENTA</p>
+  <p>ÁÉÍÓÚ áéíóú Ññ Üü · Q 0.00<br>1234567890</p>
+  <table class="w-100">
+    <thead><tr><th>Artículo</th><th>Cant.</th><th>Importe</th></tr></thead>
+    <tbody><tr><td>Artículo de prueba<small class="d-block">Descuento: -Q 0.00</small></td><td>1</td><td>Q 0.00</td></tr></tbody>
+  </table>
+  <hr>
+  <div class="d-flex justify-content-between"><b>TOTAL DE PRUEBA</b><b>Q 0.00</b></div>
+  <p class="text-center mt-3">Comprueba que las letras, los importes y ambos bordes se lean completos.</p>
+  {% include '_ticket_pie.html' %}
+</div>
+{% endblock %}

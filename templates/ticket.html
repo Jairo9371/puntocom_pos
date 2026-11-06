@@ -9,13 +9,9 @@ content %}
   </button>
   {% if puede('ventas.registrar') %}<a class="btn btn-success" href="{{url_for('pos')}}">Nueva venta</a>{% endif %}
 </div>
-<div class="ticket">
-  <h3>PUNTO COM</h3>
-  <p>
-    Librería · Guatemala<br />Comprobante de venta<br /><small
-      >Este ticket no es factura electrónica FEL</small
-    >
-  </p>
+{% set datos_negocio = negocio|default({}) %}
+<div class="ticket" style="--ancho-ticket: {{ 58 if datos_negocio.get('ancho_ticket')|string == '58' else 80 }}mm;">
+  {% include '_ticket_encabezado.html' %}
   <hr />
   {% if venta.estado == 'ANULADA' %}<p class="text-center fw-bold">VENTA ANULADA</p>{% endif %}
   {% if venta.estado_pago == 'PENDIENTE' %}
@@ -71,6 +67,6 @@ content %}
   {% if venta.metodo_pago == 'EFECTIVO' and venta.resultado_cobro %}
   <p>Recibido: {{ venta.recibido|q }}<br>Cambio: {{ venta.cambio|q }}</p>
   {% endif %}
-  <p class="text-center mt-4">¡Gracias por su compra!</p>
+  {% include '_ticket_pie.html' %}
 </div>
 {% endblock %}

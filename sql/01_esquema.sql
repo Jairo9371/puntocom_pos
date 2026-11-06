@@ -2,6 +2,20 @@
 -- Si ya creaste las 13 tablas con el diagrama ER, NO vuelvas a ejecutar este archivo.
 CREATE TABLE rol (id_rol SERIAL PRIMARY KEY, nombre VARCHAR(50) UNIQUE NOT NULL);
 CREATE TABLE usuario (id_usuario SERIAL PRIMARY KEY,id_rol INTEGER NOT NULL REFERENCES rol(id_rol),nombre VARCHAR(100) NOT NULL,correo VARCHAR(150) UNIQUE NOT NULL,hash_contrasena VARCHAR(255) NOT NULL,estado BOOLEAN NOT NULL DEFAULT TRUE);
+CREATE TABLE configuracion_negocio (
+    id SMALLINT PRIMARY KEY DEFAULT 1 CHECK(id=1),
+    nombre_comercial VARCHAR(150) NOT NULL DEFAULT 'PUNTO COM' CHECK(LENGTH(TRIM(nombre_comercial))>0),
+    giro VARCHAR(150) NOT NULL DEFAULT 'Librería · Guatemala',
+    direccion VARCHAR(300) NOT NULL DEFAULT '',
+    telefono VARCHAR(20) NOT NULL DEFAULT '',
+    correo VARCHAR(150) NOT NULL DEFAULT '',
+    nit VARCHAR(30) NOT NULL DEFAULT '',
+    mensaje_ticket VARCHAR(255) NOT NULL DEFAULT '¡Gracias por su compra!',
+    ancho_ticket SMALLINT NOT NULL DEFAULT 80 CHECK(ancho_ticket IN (58,80)),
+    actualizado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    actualizado_por INTEGER REFERENCES usuario(id_usuario)
+);
+INSERT INTO configuracion_negocio(id) VALUES(1);
 CREATE TABLE turno_caja (id_turno SERIAL PRIMARY KEY,id_usuario INTEGER NOT NULL REFERENCES usuario(id_usuario),apertura TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,cierre TIMESTAMP,estado VARCHAR(20) NOT NULL DEFAULT 'ABIERTO',fondo_inicial NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK(fondo_inicial>=0),efectivo_contado NUMERIC(12,2) CHECK(efectivo_contado>=0));
 CREATE TABLE movimiento_caja (id_movimiento_caja SERIAL PRIMARY KEY,id_turno INTEGER NOT NULL REFERENCES turno_caja(id_turno),fecha_hora TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,tipo VARCHAR(20) NOT NULL CHECK(tipo IN ('INGRESO','EGRESO')),concepto VARCHAR(255) NOT NULL,monto NUMERIC(12,2) NOT NULL CHECK(monto>0));
 CREATE TABLE cliente (id_cliente SERIAL PRIMARY KEY,nombre_razon_social VARCHAR(150) NOT NULL,nit_dpi VARCHAR(30),telefono VARCHAR(20),correo VARCHAR(150),direccion_fiscal TEXT);

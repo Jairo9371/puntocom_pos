@@ -112,19 +112,27 @@ class GestionTest(unittest.TestCase):
                 "razon_social": "Papelería", "contacto": "Persona 2",
             })
 
-    def test_categoria_y_cliente_conservan_regla_de_solo_letras(self):
+    def test_nombres_de_categoria_y_cliente_conservan_regla_de_solo_letras(self):
         self.assertEqual(validar_datos_gestion("categorias", {
             "nombre": " Útiles escolares ", "descripcion": " Artículos básicos ",
         })["descripcion"], "Artículos básicos")
         for modulo, campos in (
             ("categorias", {"nombre": "Útiles 2"}),
-            ("categorias", {"nombre": "Útiles", "descripcion": "Serie 2"}),
             ("clientes", {"nombre_razon_social": "María-López"}),
             ("clientes", {"nombre_razon_social": "María  López"}),
         ):
             with self.subTest(modulo=modulo, campos=campos):
                 with self.assertRaises(ValueError):
                     validar_datos_gestion(modulo, campos)
+
+    def test_descripcion_categoria_admite_texto_natural_con_limite(self):
+        descripcion = 'Cuadernos de 80 hojas, para uso escolar y de oficina.'
+        self.assertEqual(validar_datos_gestion('categorias', {
+            'nombre': 'Cuadernos', 'descripcion': descripcion,
+        })['descripcion'], descripcion)
+        for invalida in ('A' * 256, 'Texto\x00oculto'):
+            with self.subTest(descripcion=invalida), self.assertRaises(ValueError):
+                validar_datos_gestion('categorias', {'nombre': 'Cuadernos', 'descripcion': invalida})
 
     def test_rechaza_nombre_ausente_y_limites_del_esquema(self):
         for modulo, campos in (

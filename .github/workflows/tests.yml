@@ -42,7 +42,45 @@ jobs:
           node-version: "22"
       - run: python -m pip install -r requirements.txt -c requirements.lock
       - run: python -m pip check
+      - name: Comprobar registro de rutas Flask
+        run: python -m flask --app app routes
       - name: Pruebas aisladas
         run: python -m unittest discover -s tests -p 'test_*.py' -v
       - name: Integracion, migraciones y concurrencia PostgreSQL
         run: python tests/postgres/ejecutar.py --sin-comparar-instalacion
+
+  containers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Credenciales sintéticas: solo existen dentro de este runner desechable.
+    # Ningún puerto de la aplicación o de PostgreSQL se publica en el host.
+    env:
+      POS_DOMAIN: pos.example.invalid
+      ACME_EMAIL: ci@example.invalid
+      SECRET_KEY: ci-9246d63ae98047c2b7f0a931e8d5c460
+      POSTGRES_PASSWORD: ci-db-72ce90d41a685f03
+      APP_DB_PASSWORD: ci-app-16f89b2a4d730e65
+      DB_NAME: puntocom_contenedores_ci
+      BACKUP_DIR: ${{ github.workspace }}/.ci-backups
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar Compose y construir imagenes
+        run: |
+          mkdir -m 700 "$BACKUP_DIR"
+          docker compose --env-file deployment/.env.example config --quiet
+          docker compose --env-file deployment/.env.example build app maintenance
+      - name: Instalar base nueva y permisos de produccion
+        run: |
+          docker compose --env-file deployment/.env.example up -d --wait db
+          docker compose --env-file deployment/.env.example run --rm -T maintenance python -m deployment.instalar_nueva
+          docker compose --env-file deployment/.env.example run --rm -T maintenance python -m flask --app app migrar-operacion
+          docker compose --env-file deployment/.env.example run --rm -T maintenance python -m deployment.roles
+      - name: Arrancar Gunicorn y comprobar healthchecks
+        run: |
+          docker compose --env-file deployment/.env.example up -d --wait app
+          docker compose --env-file deployment/.env.example exec -T app python -c "import urllib.request; [urllib.request.urlopen('http://127.0.0.1:8000/health/' + ruta, timeout=7).close() for ruta in ('live', 'ready')]; print('Healthchecks correctos')"
+      - name: Copiar y restaurar para verificar el respaldo
+        run: docker compose --env-file deployment/.env.example run --rm -T maintenance python -m deployment.respaldo_diario --directory /backups
+      - name: Eliminar solo contenedores y volumenes desechables de CI
+        if: always()
+        run: docker compose --env-file deployment/.env.example down --volumes --remove-orphans

@@ -123,10 +123,10 @@
                    title="Use letras, espacios y separadores de nombre">
           {% elif campo == 'nombre' and modulo == 'categorias' %}
             <input type="text" id="field-{{ campo }}" name="{{ campo }}"
-                   class="form-control" maxlength="150" pattern="[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+( [A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+)*" title="Solo letras y espacios" required>
+                   class="form-control" maxlength="100" pattern="[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+( [A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+)*" title="Solo letras y espacios" required>
           {% elif campo == 'descripcion' %}
             <textarea id="field-{{ campo }}" name="{{ campo }}"
-                      class="form-control" rows="3" maxlength="255" pattern="[A-Za-zÁÉÍÓÚÜÑáéíóúüñ ]*" title="Solo letras y espacios"></textarea>
+                      class="form-control" rows="3" maxlength="255"></textarea>
           {% else %}
             <input type="text" id="field-{{ campo }}" name="{{ campo }}"
                    class="form-control" maxlength="255" {% if loop.first %}required{% endif %}>
@@ -146,18 +146,6 @@
 
 {% block scripts %}
 <script>
-  const reLetras = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+(?: [A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+)*$/;
-  document.getElementById('gestion-form')?.addEventListener('submit', function(event) {
-    const campo = document.getElementById('field-descripcion');
-    if (campo && campo.value.trim() && !reLetras.test(campo.value.trim())) {
-      event.preventDefault();
-      campo.setCustomValidity('Solo se permiten letras y espacios.');
-      campo.reportValidity();
-    }
-  });
-  const descripcion = document.getElementById('field-descripcion');
-  if (descripcion) descripcion.addEventListener('input', () => descripcion.setCustomValidity(''));
-
   function limpiar() {
     const formulario = document.getElementById('gestion-form');
     formulario.reset();
@@ -230,19 +218,11 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
-    // Nombre y descripción de categorías
+    // Nombre de categorías
     if (document.getElementById("field-nombre")) {
         const nombre = document.getElementById("field-nombre");
 
         nombre.addEventListener("input", function () {
-            this.value = soloLetras(this.value);
-        });
-    }
-
-    if (document.getElementById("field-descripcion")) {
-        const descripcion = document.getElementById("field-descripcion");
-
-        descripcion.addEventListener("input", function () {
             this.value = soloLetras(this.value);
         });
     }

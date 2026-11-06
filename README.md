@@ -1,6 +1,6 @@
 # PUNTO COM — Sistema POS con Python
 
-Aplicación web para una librería en Guatemala, construida con **Python, Flask y PostgreSQL**. La interfaz está en español y los importes se expresan en quetzales (Q).
+Aplicación web para una librería y papelería en Guatemala, construida con **Python, Flask y PostgreSQL**. La interfaz está en español y los importes se expresan en quetzales (Q). Utiliza SQLAlchemy y consultas SQL para ventas, inventario, compras y caja.
 
 ## Requisitos
 
@@ -35,7 +35,7 @@ Después de la instalación inicial, o al actualizar una instalación existente,
 .\venv\Scripts\python.exe -m flask --app app migrar-operacion
 ```
 
-`migrar-operacion` utiliza la conexión configurada en `.env` y ejecuta las migraciones aditivas `04_roles_inventario.sql`, `05_ventas_pagos.sql` y `06_caja_compras.sql`, cada una dentro de su transacción. Puede repetirse y conserva registros e historial. `migrar-accesos` se mantiene para ejecutar únicamente la migración 04. La aplicación no migra automáticamente al arrancar. Consulta el [flujo de pagos y operación](docs/operacion.md) y la [guía de despliegue y recuperación](docs/despliegue.md).
+`migrar-operacion` utiliza la conexión configurada en `.env` y ejecuta las migraciones aditivas `04_roles_inventario.sql`, `05_ventas_pagos.sql`, `06_caja_compras.sql` y `07_configuracion_negocio.sql`, cada una dentro de su transacción. Puede repetirse y conserva registros e historial. `migrar-accesos` se mantiene para ejecutar únicamente la migración 04. La aplicación no migra automáticamente al arrancar. Consulta el [flujo de pagos y operación](docs/operacion.md) y la [guía de despliegue y recuperación](docs/despliegue.md).
 
 En la instalación validada el **18 de octubre de 2026**, la migración 04 se aplicó correctamente a la base configurada y reutilizó los tres identificadores de roles existentes. Los pasos anteriores siguen siendo necesarios para otras instalaciones o bases nuevas.
 
@@ -71,11 +71,30 @@ La aplicación utiliza `America/Guatemala` para sus fechas y fija esa zona horar
 
 ## Primer flujo de prueba
 
-1. Inicia sesión como administrador y abre `Caja` con un fondo inicial.
+1. Inicia sesión como administrador, revisa `Configuración` y abre `Caja` con un fondo inicial, que puede ser Q 0.00.
 2. En `Punto de Venta`, busca un producto con existencias, agrégalo al carrito y cobra.
 3. Consulta el ticket, el historial de ventas y el inventario actualizado.
 4. Registra una compra simple o una entrada manual de inventario.
 5. Consulta reportes para el mismo período y descarga el Excel.
+6. Cierra la caja con el efectivo contado y revisa su diferencia.
+
+En **Configuración**, el Administrador puede guardar nombre comercial, descripción del negocio, dirección, teléfono, correo, NIT y mensaje del ticket. Elige papel de **58 u 80 mm** y abre **Probar impresión** después de guardar. Esta prueba no registra ventas. Los tickets impresos utilizan los datos comerciales guardados; los importes históricos de las ventas se conservan.
+
+Para revisar los datos actuales sin modificarlos:
+
+```powershell
+.\venv\Scripts\python.exe -m deployment.revisar_datos --env-file .env
+```
+
+La revisión comprueba existencias negativas, totales frente a detalles, saldos de compras frente a abonos y cajas abiertas duplicadas. Separa los avisos informativos, como productos sin código de barras o compras históricas pendientes de conciliar; no corrige ni elimina registros.
+
+La [guía de despliegue](docs/despliegue.md) incluye respaldo diario con restauración temporal verificada y programación en Windows. Para comprobar una ejecución local:
+
+```powershell
+.\venv\Scripts\python.exe -m deployment.respaldo_diario --env-file .env --directory backups
+```
+
+La tarea de Windows trabaja sin ventana con la sesión del usuario iniciada. Una copia fuera del equipo requiere configurar un destino independiente.
 
 ## Funciones y reglas principales
 
@@ -87,7 +106,7 @@ La aplicación utiliza `America/Guatemala` para sus fechas y fija esa zona horar
 - Apertura y cierre de caja, ingresos y egresos de efectivo.
 - POS con búsqueda por código, nombre o barras; cantidades y descuento monetario por renglón únicamente para Administrador.
 - Cobro transaccional con validación de existencias y precios del servidor. Un pago en efectivo registra el ingreso en caja.
-- Ticket imprimible de 80 mm. El navegador puede guardarlo como PDF.
+- Configuración del negocio persistente, reservada al Administrador, con ticket imprimible de 58 u 80 mm y comprobante de prueba sin venta. El navegador puede guardarlos como PDF.
 - Compras de varios productos, con entradas y actualización de costo en una transacción, crédito y abonos con origen explícito del efectivo.
 - Cobros con clave de operación para recuperar reintentos sin ventas duplicadas y pagos pendientes, confirmados o fallidos.
 - Arqueo de caja con esperado, contado, diferencia y motivo, conservado después del cierre.
@@ -111,7 +130,7 @@ Los perfiles admitidos son Administrador, Cajero y Bodeguero. El rol y el estado
 
 El Cajero no puede editar ni desactivar clientes, aunque los haya creado. El Bodeguero no puede modificar productos, categorías ni proveedores ni aprobar ajustes. Ocultar acciones se complementa con autorización del servidor, incluida la propiedad de cada comprobante y los filtros de exportación.
 
-La [guía de control de acceso](documentacion/Control_acceso_roles.md) contiene la matriz completa, rutas, migración y pasos de prueba por perfil. La edición persistente de configuración general es la única función de la matriz aún pendiente; la página informativa existente queda protegida para Administrador.
+La [guía de control de acceso](documentacion/Control_acceso_roles.md) contiene la matriz completa, rutas, migración y pasos de prueba por perfil. La configuración general se guarda únicamente por Administrador y revalida el permiso dentro de la transacción.
 
 ## Demostración de 30 operaciones por roles
 
@@ -166,6 +185,7 @@ La eliminación bloquea la fila con `FOR UPDATE` y comprueba las referencias rea
 | --- | --- |
 | `app.py` | Aplicación Flask, rutas, autenticación y coordinación de las operaciones. |
 | `configuracion.py` | Variables de entorno, conexión, cookies, depuración y zona horaria. |
+| `configuracion_negocio.py` | Datos comerciales persistentes, validación y formato del ticket. |
 | `datos.py` | Acceso SQL y utilidades de base de datos. |
 | `permisos.py` | Matriz central, autorización reutilizable y revalidación transaccional de responsables. |
 | `validaciones.py` | Reglas compartidas de entrada y normalización. |
@@ -232,7 +252,7 @@ La versión incluye preparación para despliegue. La instalación requiere `migr
 - El margen mostrado es bruto estimado y no descuenta gastos generales.
 - Los precios son finales; la tasa de IVA del detalle es informativa.
 - Los ajustes se solicitan mediante conteos pendientes y se aplican una sola vez tras aprobación del Administrador, generando movimientos `ENTRADA` o `SALIDA`.
-- La configuración general tiene una página informativa protegida; su edición persistente está pendiente.
+- La configuración del negocio y la prueba de impresión requieren Administrador. Debe comprobarse el resultado físico con la impresora y el lector que se usarán.
 - Se incluyen respaldo con snapshot y restauración verificable, despliegue Docker/HTTPS y plantilla de cron. Su activación, copia remota y comprobación en el servidor requieren configurar el destino. Continúan pendientes auditoría general, límite de intentos de acceso y pruebas de carga.
 
 La documentación fuente está en [Markdown](documentacion/Logica_del_proyecto_PUNTO_COM.md). Su [PDF](documentacion/Logica_del_proyecto_PUNTO_COM.pdf) se genera a partir del Markdown; para actualizarlo después de editar el documento, ejecuta:

@@ -1,0 +1,68 @@
+{% extends 'base.html' %}
+{% block crumb %}Configuración{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Configuración del negocio</h1>
+    <p class="text-muted mb-0">Los datos guardados aparecerán en los tickets que imprimas.</p>
+  </div>
+  <a class="btn btn-outline-secondary" href="{{ url_for('prueba_ticket') }}" target="_blank" rel="noopener">Probar impresión</a>
+</div>
+{% if errores %}
+<div class="alert alert-danger" role="alert">
+  <p class="mb-1">Revisa los datos antes de guardar:</p>
+  <ul class="mb-0">{% for error in errores %}<li>{{ error }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+<div class="panel p-4">
+  <form method="post" action="{{ url_for('configuracion') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <label class="form-label" for="nombre-comercial">Nombre comercial</label>
+        <input class="form-control" id="nombre-comercial" name="nombre_comercial" value="{{ negocio.nombre_comercial }}" maxlength="150" required>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label" for="giro">Descripción del negocio</label>
+        <input class="form-control" id="giro" name="giro" value="{{ negocio.giro }}" maxlength="150" placeholder="Librería · Guatemala">
+      </div>
+      <div class="col-12">
+        <label class="form-label" for="direccion">Dirección</label>
+        <textarea class="form-control" id="direccion" name="direccion" maxlength="300" rows="2">{{ negocio.direccion }}</textarea>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label" for="telefono">Teléfono</label>
+        <input class="form-control" id="telefono" name="telefono" type="tel" inputmode="tel" value="{{ negocio.telefono }}" maxlength="20" placeholder="Opcional">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label" for="correo">Correo</label>
+        <input class="form-control" id="correo" name="correo" type="email" value="{{ negocio.correo }}" maxlength="150" placeholder="Opcional">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label" for="nit">NIT del negocio</label>
+        <input class="form-control" id="nit" name="nit" value="{{ negocio.nit }}" maxlength="30" placeholder="Opcional">
+      </div>
+      <div class="col-md-8">
+        <label class="form-label" for="mensaje-ticket">Mensaje al pie del ticket</label>
+        <textarea class="form-control" id="mensaje-ticket" name="mensaje_ticket" maxlength="255" rows="2">{{ negocio.mensaje_ticket }}</textarea>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label" for="ancho-ticket">Ancho del ticket</label>
+        <select class="form-select" id="ancho-ticket" name="ancho_ticket">
+          <option value="80" {% if negocio.ancho_ticket|string != '58' %}selected{% endif %}>80 mm</option>
+          <option value="58" {% if negocio.ancho_ticket|string == '58' %}selected{% endif %}>58 mm</option>
+        </select>
+      </div>
+    </div>
+    <div class="d-flex flex-wrap align-items-center gap-3 mt-4">
+      <button type="submit" class="btn btn-primary">Guardar configuración</button>
+      <span class="text-muted small">Guarda los cambios antes de abrir la prueba de impresión.</span>
+    </div>
+  </form>
+</div>
+<div class="panel p-4 mt-3">
+  <h2 class="h5">Comprobar tus equipos</h2>
+  <p>En la prueba de impresión, elige tu impresora y el mismo ancho de papel, usa escala del 100 % y desactiva los encabezados y pies del navegador.</p>
+  <p class="mb-0">Para comprobar el lector, abre el Punto de Venta, sitúa el cursor en la búsqueda y escanea un producto registrado. Verifica que aparezca el producto correcto y su precio antes de cobrar.</p>
+</div>
+{% endblock %}

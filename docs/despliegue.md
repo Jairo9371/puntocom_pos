@@ -1,7 +1,7 @@
 # Despliegue y recuperación de PUNTO COM
 
 Esta configuración prepara un servidor Linux con Docker Compose: Caddy publica
-HTTPS, Gunicorn atiende Flask y PostgreSQL 18 conserva sus datos en un volumen.
+HTTPS, Gunicorn atiende Flask mediante `app:app` y PostgreSQL 18 conserva sus datos en un volumen.
 Los puertos de Flask y PostgreSQL no se publican. La aplicación utiliza el rol
 `puntocom_app`, sin permisos de crear bases, roles o tablas. Las tareas de
 instalación y migración usan el perfil administrativo `maintenance` explícito.
@@ -34,8 +34,9 @@ La imagen excluye los archivos `.env`, respaldos, Git y archivos locales. No use
 Las versiones Python se fijan mediante `requirements.lock`; las imágenes usan
 etiquetas de versión mayor, que reciben actualizaciones. Para un despliegue
 reproducible, registra y fija sus digest SHA-256 después de validar la imagen en
-el servidor de pruebas. No se ha ejecutado Docker en el entorno Windows de este
-repositorio; falta construir y comprobar la imagen en ese servidor.
+el servidor de pruebas. Docker no está instalado en el entorno Windows de este
+repositorio. Como todavía no hay un servidor de destino, faltan la construcción
+de imágenes, la emisión del certificado HTTPS y la comprobación de reinicios allí.
 
 ## Instalación nueva o traslado de la base actual
 
@@ -76,7 +77,7 @@ docker compose --env-file deployment/.env up -d app caddy
 docker compose --env-file deployment/.env ps
 ```
 
-`migrar-operacion` aplica 04, 05 y 06; nunca vuelve a ejecutar el esquema inicial.
+`migrar-operacion` aplica 04, 05, 06 y 07; la última incorpora los datos del negocio y el ancho del ticket. Nunca vuelve a ejecutar el esquema inicial.
 El servidor web recibe únicamente la contraseña runtime. El perfil de mantenimiento
 recibe la contraseña administrativa cuando se ejecuta una tarea explícita.
 Si cambias `APP_DB_PASSWORD`, repite `deployment.roles` y recrea el contenedor web.
@@ -130,10 +131,63 @@ Los errores devuelven código distinto de cero sin mostrar contraseñas ni mensa
 del servidor. La contraseña se pasa a las herramientas por entorno, nunca por URI
 ni por argumentos. El respaldo se renombra de `.partial` al finalizar.
 
-Instala el ejemplo `deployment/backup-cron.example` ajustando la ruta y hora del
-servidor. Hace una copia diaria y prueba su restauración; crea previamente el
-log con permisos `0600`. Configura alertas por fallo y vigila que llegue una copia
-nueva cada día. Un archivo cron en el repositorio no instala el planificador.
+Para ejecutar siempre copia y prueba de restauración con control de concurrencia:
+
+```powershell
+.\venv\Scripts\python.exe -m deployment.respaldo_diario --env-file .env --check
+.\venv\Scripts\python.exe -m deployment.respaldo_diario --env-file .env --directory backups
+```
+
+`--check` comprueba que ambos clientes PostgreSQL existen y tienen la misma
+versión mayor; no conecta a la base ni crea una copia. La ejecución completa
+guarda `backups/respaldos.log` con fecha UTC y un resultado seguro. Solo después
+de restaurar, comparar y eliminar la base temporal escribe
+`backups/ultimo_respaldo_verificado.json` con el archivo, SHA-256, filas y fecha.
+Si una ejecución falla, conserva la constancia anterior: comprueba también su
+antigüedad y el último resultado del planificador. No deduzcas éxito solo porque
+existe un `.dump`. Las fechas de los respaldos y logs usan UTC; los horarios de
+Windows y cron usan la zona horaria del equipo.
+
+El bloqueo de sistema impide dos ejecuciones del runner sobre la misma carpeta,
+incluso desde contenedores distintos; se libera si termina el proceso. Su archivo
+`.respaldo-diario.lock` permanece y no se debe borrar para desbloquear una tarea.
+Devuelve 0 por verificación completa, 1 por fallo y 2 si otra ejecución ya ocupa
+la carpeta. No aplica retención ni elimina copias anteriores.
+
+### Programación local en Windows
+
+Desde PowerShell con tu cuenta Windows habitual, revisa el plan sin instalarlo:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File deployment\programar_respaldo_windows.ps1 -Hora 02:17
+```
+
+Confirma que la cuenta, zona horaria, rutas y hora sean correctas. El instalador
+usa rutas absolutas dentro del proyecto, rechaza enlaces en esas rutas y no
+reemplaza tareas existentes. Después de realizar una copia manual verificada:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File deployment\programar_respaldo_windows.ps1 -Hora 02:17 -Activar
+Get-ScheduledTaskInfo -TaskName 'PUNTO COM - respaldo diario'
+Start-ScheduledTask -TaskName 'PUNTO COM - respaldo diario'
+```
+
+El último comando permite comprobar una primera ejecución. Espera a que termine
+y revisa el resultado, log y nueva fecha de la constancia. Se usa `pythonw.exe`
+del entorno virtual para trabajar sin ventana, sin contraseñas en argumentos y
+con privilegios de usuario. **Esta tarea requiere que esa cuenta tenga una sesión
+iniciada**; no reemplaza un servidor que permanece disponible. Si el equipo
+estaba apagado, `StartWhenAvailable` permite ejecutarla al estar disponible y con
+la sesión iniciada. El instalador no permite registrarla desde la cuenta temporal
+de Codex. Para pausarla o retirarla, usa el Programador de tareas de Windows.
+
+### Programación en el futuro servidor Linux
+
+Instala `deployment/backup-cron.example` ajustando la ruta y hora del servidor.
+El ejemplo invoca el runner dentro del perfil `maintenance`; comparte el bloqueo
+y la constancia en `BACKUP_DIR`. Crea previamente el log de cron con permisos
+`0600`. Configura alertas por fallo y vigila que llegue una copia nueva cada día.
+Un archivo cron en el repositorio no instala el planificador.
 
 Un respaldo contiene datos personales y hashes de contraseñas. En Linux las
 carpetas y archivos se crean con `0700`/`0600`; en Windows configura las ACL de
@@ -177,8 +231,12 @@ actualizar: elimina los volúmenes persistentes.
 
 ## Actualizaciones y validación continua
 
-GitHub Actions ejecuta pruebas aisladas y PostgreSQL en una base desechable; no
-despliega. Localmente utiliza:
+GitHub Actions ejecuta pruebas aisladas y PostgreSQL en una base desechable. Otro
+job construye las imágenes, instala una base nueva, aplica migraciones y permisos,
+inicia Gunicorn, comprueba los dos healthchecks y prueba la copia/restauración
+con el runner diario. No publica puertos de aplicación o base ni conecta datos
+reales. Esa verificación requiere ejecutar el workflow en GitHub y no comprueba
+el dominio o certificado del futuro servidor. Localmente utiliza:
 
 ```powershell
 .\venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py" -v

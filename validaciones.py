@@ -20,7 +20,7 @@ RE_CORREO = re.compile(
     r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+"
 )
 LIMITES_GESTION = {
-    "categorias": {"nombre": 100},
+    "categorias": {"nombre": 100, "descripcion": 255},
     "clientes": {
         "nombre_razon_social": 150, "nit_dpi": 30,
         "telefono": 20, "correo": 150,
@@ -150,9 +150,10 @@ def validar_datos_gestion(modulo, data):
 
     if modulo == "categorias":
         datos["nombre"] = solo_letras(datos.get("nombre"), "Nombre de categoría")
-        datos["descripcion"] = solo_letras(
-            datos.get("descripcion"), "Descripción de categoría", obligatorio=False
-        )
+        descripcion = datos.get("descripcion") or ""
+        if any(ord(c) < 32 and c not in '\r\n\t' for c in descripcion):
+            raise ValueError('La descripción contiene caracteres de control no permitidos.')
+        datos["descripcion"] = descripcion
         return datos
 
     es_cliente = modulo == "clientes"
