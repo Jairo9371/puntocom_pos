@@ -1,0 +1,27 @@
+# Configuración privada, herramientas locales y respaldos.
+**/.env
+**/.env.*
+**/*.env
+.git/
+.github/
+.agents/
+.codex/
+.aws/
+.vercel/
+venv/
+.venv/
+node_modules/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+backups/
+secrets/
+Microsoft/
+documentacion/
+tests/
+docs/
+**/*.dump
+**/*.backup
+**/*.partial
+**/*.manifest.json
+**/*.log

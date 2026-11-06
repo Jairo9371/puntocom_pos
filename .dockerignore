@@ -20,3 +20,5 @@ backups
 **/*.partial
 **/*.log
 docs
+.vercel
+public

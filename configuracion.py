@@ -6,6 +6,7 @@ import secrets
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.engine import URL
+from sqlalchemy.pool import NullPool
 
 
 TZ = ZoneInfo('America/Guatemala')
@@ -26,7 +27,8 @@ def _booleano(entorno, nombre, predeterminado=False):
 def cargar_configuracion(entorno=None):
     """Permite pasar un entorno explícito para probar sin acceder al .env real."""
     entorno = os.environ if entorno is None else entorno
-    ambiente = entorno.get('APP_ENV', 'development').strip().lower()
+    en_vercel = entorno.get('VERCEL') == '1'
+    ambiente = entorno.get('APP_ENV', 'production' if en_vercel else 'development').strip().lower()
     if ambiente not in ('development', 'testing', 'production'):
         raise ValueError('APP_ENV debe ser development, testing o production.')
     produccion = ambiente == 'production'
@@ -44,6 +46,12 @@ def cargar_configuracion(entorno=None):
     if produccion and not cookies_seguras:
         raise ValueError('SESSION_COOKIE_SECURE debe ser true en producción.')
     hosts = [host.strip() for host in entorno.get('TRUSTED_HOSTS', '').split(',') if host.strip()]
+    if en_vercel:
+        # Dominios de este proyecto y despliegue, sin permitir todo .vercel.app.
+        for variable in ('VERCEL_URL', 'VERCEL_BRANCH_URL', 'VERCEL_PROJECT_PRODUCTION_URL'):
+            host = entorno.get(variable, '').strip()
+            if host and host not in hosts:
+                hosts.append(host)
     if any(not re.fullmatch(r'\.?[A-Za-z0-9][A-Za-z0-9.-]*', host) or '..' in host for host in hosts):
         raise ValueError('TRUSTED_HOSTS debe contener nombres de host separados por comas, sin esquema ni puerto.')
     if produccion and not hosts:
@@ -70,6 +78,15 @@ def cargar_configuracion(entorno=None):
     }
     if entorno.get('DB_SSLROOTCERT', '').strip():
         argumentos_conexion['sslrootcert'] = entorno['DB_SSLROOTCERT'].strip()
+    opciones_motor = {
+        'pool_pre_ping': True,
+        # Una consulta posterior a un bloqueo debe ver los cambios confirmados.
+        'isolation_level': 'READ COMMITTED',
+        'connect_args': argumentos_conexion,
+    }
+    if en_vercel:
+        # Cada instancia libera las conexiones al devolverlas a SQLAlchemy.
+        opciones_motor['poolclass'] = NullPool
     return {
         'APP_ENV': ambiente,
         'SECRET_KEY': clave or ('dev-only-' + secrets.token_hex(32)),
@@ -83,13 +100,7 @@ def cargar_configuracion(entorno=None):
             database=entorno.get('DB_NAME', 'puntocom_pos'),
         ),
         # TIMESTAMP/CURRENT_DATE/NOW() comparten el horario del negocio.
-        'SQLALCHEMY_ENGINE_OPTIONS': {
-            'pool_pre_ping': True,
-            # Tras esperar un bloqueo, la siguiente consulta de stock debe ver
-            # los movimientos recién confirmados por la otra transacción.
-            'isolation_level': 'READ COMMITTED',
-            'connect_args': argumentos_conexion,
-        },
+        'SQLALCHEMY_ENGINE_OPTIONS': opciones_motor,
         'SQLALCHEMY_TRACK_MODIFICATIONS': False,
         'SESSION_COOKIE_HTTPONLY': True,
         'SESSION_COOKIE_SAMESITE': 'Lax',

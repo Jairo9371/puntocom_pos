@@ -48,6 +48,14 @@ Crea el administrador inicial y arranca el servidor local:
 
 Abre <http://127.0.0.1:5000/login> e inicia sesión con las credenciales que acabas de establecer.
 
+## Pruebas en Vercel
+
+El proyecto incluye configuración para Flask en Vercel con Python 3.12 y archivos
+estáticos preparados durante la compilación. Necesita una base PostgreSQL remota
+de pruebas, migraciones y variables de entorno; la publicación no los crea.
+Consulta la [guía de Vercel](docs/vercel.md) y la plantilla
+[`deployment/vercel.env.example`](deployment/vercel.env.example).
+
 ## Configuración
 
 `.env.example` contiene únicamente valores de ejemplo. Mantén `.env` fuera del repositorio.
